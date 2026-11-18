@@ -96,8 +96,10 @@ def test_key_is_never_in_repr_or_dump(cls: type[Any]) -> None:
 
 def test_built_clients_use_the_key_base_url_and_user_agent() -> None:
     r = LexAPILegislationRetriever(api_key="lex_given", base_url="http://127.0.0.1:9/api/v1")
-    assert r._sync is not None and r._async is not None
-    for http in (r._sync._http, r._async._http):
+    assert r._sync is not None and r._async is None  # async is built on first use
+    built = r._async_client()
+    assert built is not None and r._async_client() is built
+    for http in (r._sync._http, built._http):
         assert http.headers["x-api-key"] == "lex_given"
         assert str(http.base_url).rstrip("/") == "http://127.0.0.1:9/api/v1"
         assert http.headers["user-agent"].endswith(USER_AGENT_SUFFIX)
@@ -118,7 +120,7 @@ def test_no_key_at_all_fails_at_construction(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_each_instance_builds_its_own_clients() -> None:
     a, b = LexAPILegislationRetriever(), LexAPILegislationRetriever()
-    assert a._sync is not b._sync and a._async is not b._async
+    assert a._sync is not b._sync and a._async_client() is not b._async_client()
 
 
 def test_import_opens_no_connection_and_builds_no_client() -> None:

@@ -11,7 +11,7 @@ from lexapi.models import SemanticLegislationResponse
 from pydantic import ValidationError
 
 from conftest import SYN, Stub, load, offline_clients, stub_for
-from langchain_lexapi import LexAPILegislationRetriever
+from langchain_lexapi import InvalidArgumentError, LexAPILegislationRetriever
 
 PATH = "/legislation/semantic"
 
@@ -63,7 +63,7 @@ def test_per_call_overrides_for_k_and_as_of() -> None:
 @pytest.mark.parametrize("k", [0, 51, -1, True, "3", 2.0])
 def test_bad_k_override_is_refused_before_any_request(k: Any) -> None:
     r, stub = retriever("legislation-semantic.mixed")
-    with pytest.raises(ValueError, match="k must be"):
+    with pytest.raises(InvalidArgumentError, match="k must be"):
         r.invoke("q", k=k)
     assert stub.requests == []
 
@@ -83,7 +83,7 @@ def test_unknown_override_is_a_type_error() -> None:
 
 def test_bad_as_of_is_refused_before_any_request() -> None:
     r, stub = retriever("legislation-semantic.mixed")
-    with pytest.raises(ValidationError):
+    with pytest.raises(InvalidArgumentError, match="as_of must be a date"):
         r.invoke("q", as_of="2099-02-30")
     assert stub.requests == []
 

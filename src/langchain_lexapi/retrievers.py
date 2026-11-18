@@ -23,7 +23,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import run_in_executor
 from lexapi import passages
 from lexapi.passages import PassageResult, UnresolvedPolicy
-from pydantic import Field, TypeAdapter, field_validator
+from pydantic import ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 from langchain_lexapi._clients import LexAPIClientFields
 from langchain_lexapi._documents import REPORT_EVENT, RetrievalReport, to_documents
@@ -32,6 +32,20 @@ from langchain_lexapi._report import caught, config_with_catcher
 __all__ = ["LexAPICaseLawRetriever", "LexAPILegislationRetriever"]
 
 _DATE = TypeAdapter(datetime.date | None)
+
+
+class InvalidArgumentError(ValueError):
+    """A per-call argument (``k`` or ``as_of``) that is not valid. Raised
+    before any request is sent."""
+
+
+def _date_argument(value: Any) -> datetime.date | None:
+    try:
+        return _DATE.validate_python(value)
+    except ValidationError:
+        raise InvalidArgumentError(
+            f"as_of must be a date in the form YYYY-MM-DD; got {value!r}"
+        ) from None
 
 
 def _iso(value: datetime.date | None) -> str | None:
@@ -70,6 +84,9 @@ class _LexAPIRetriever(LexAPIClientFields, BaseRetriever):
     """Shared call flow: one API call, conversion by ``lexapi.passages``,
     one report event per call."""
 
+    # LangChain's base classes ignore unknown arguments; these refuse them.
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
+
     #: Keyword arguments ``invoke`` accepts as per-call overrides.
     _overrides: ClassVar[frozenset[str]] = frozenset({"k"})
     #: Largest ``k`` the endpoint accepts.
@@ -92,7 +109,9 @@ class _LexAPIRetriever(LexAPIClientFields, BaseRetriever):
         if "k" in kwargs:
             k = kwargs["k"]
             if isinstance(k, bool) or not isinstance(k, int) or not 1 <= k <= self._max_k:
-                raise ValueError(f"k must be an integer from 1 to {self._max_k}; got {k!r}")
+                raise InvalidArgumentError(
+                    f"k must be an integer from 1 to {self._max_k}; got {k!r}"
+                )
         kwargs.setdefault("k", self.k)
         return kwargs
 
@@ -110,7 +129,8 @@ class _LexAPIRetriever(LexAPIClientFields, BaseRetriever):
     def _convert(
         self, result: PassageResult, options: dict[str, Any]
     ) -> tuple[list[Document], RetrievalReport]:
-        return to_documents(result, requested=options["k"], **self._conversion())
+        documents, report, _ = to_documents(result, requested=options["k"], **self._conversion())
+        return documents, report
 
     def _get_relevant_documents(
         self, query: str, *, run_manager: CallbackManagerForRetrieverRun, **kwargs: Any
@@ -125,7 +145,7 @@ class _LexAPIRetriever(LexAPIClientFields, BaseRetriever):
         self, query: str, *, run_manager: AsyncCallbackManagerForRetrieverRun, **kwargs: Any
     ) -> list[Document]:
         options = self._check_overrides(kwargs)
-        if self._async is not None:
+        if self._async_client() is not None:
             result = await self._acall(query, options)
         else:
             result = await run_in_executor(None, self._call, query, options)
@@ -172,7 +192,7 @@ class LexAPILegislationRetriever(_LexAPIRetriever):
     vector store.
 
     Cost: 5 credits per search. With ``as_of``, each version LexAPI does not
-    hold yet is fetched (at most 3 per search by default), at 0 to 5 credits
+    hold yet is fetched (at most 3 per search), at 0 to 5 credits
     each. See the API reference for current prices.
 
     Per-call overrides: ``invoke(query, k=3, as_of="2019-06-01")``.
@@ -213,7 +233,7 @@ class LexAPILegislationRetriever(_LexAPIRetriever):
     def _check_overrides(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         options = super()._check_overrides(kwargs)
         if "as_of" in options:
-            options["as_of"] = _DATE.validate_python(options["as_of"])
+            options["as_of"] = _date_argument(options["as_of"])
         else:
             options["as_of"] = self.as_of
         return options
@@ -240,8 +260,9 @@ class LexAPILegislationRetriever(_LexAPIRetriever):
         return self._passages(response, options)
 
     async def _acall(self, query: str, options: dict[str, Any]) -> PassageResult:
-        assert self._async is not None
-        response = await self._async.semantic_legislation_search(query, **self._request(options))
+        client = self._async_client()
+        assert client is not None
+        response = await client.semantic_legislation_search(query, **self._request(options))
         return self._passages(response, options)
 
     def _conversion(self) -> dict[str, Any]:
@@ -302,8 +323,9 @@ class LexAPICaseLawRetriever(_LexAPIRetriever):
         return passages.from_case_law_search(response)
 
     async def _acall(self, query: str, options: dict[str, Any]) -> PassageResult:
-        assert self._async is not None
-        response = await self._async.semantic_search(query, **self._request(options))
+        client = self._async_client()
+        assert client is not None
+        response = await client.semantic_search(query, **self._request(options))
         return passages.from_case_law_search(response)
 
     def _conversion(self) -> dict[str, Any]:

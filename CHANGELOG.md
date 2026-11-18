@@ -21,4 +21,9 @@ All notable changes to this project are documented here. The format follows
   `lexapi_retrieval_report` callback event and in tool artifacts.
 - Documents, metadata and ids are built by the SDK's `lexapi.passages`; the only metadata key added
   is `source`.
-- Sync and async, with the SDK's sync and async clients.
+- Sync and async, with the SDK's sync and async clients. Clients built by an instance are closed
+  by its `close()` / `aclose()` or context manager; clients passed in are never closed. The async
+  client is built on first async use.
+- De-duplication by passage id: a text from the API ranks over a labelled latest text, which ranks
+  over a notice; a later passage replaces an earlier one only if it ranks strictly higher.
+- `InvalidArgumentError` for a bad per-call `k` or `as_of`. Unknown constructor arguments raise.

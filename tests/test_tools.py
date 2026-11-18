@@ -68,27 +68,57 @@ def test_search_tool_empty_result_says_so() -> None:
         LexAPISearchLegislationTool, "/legislation/semantic", "legislation-semantic.empty"
     )
     message = call(tool, {"query": "nothing"})
-    assert message.content == "LexAPI found no matching legislation for this query."
+    assert message.content == "LexAPI found no matching legislation."
 
 
-def test_search_tool_drop_policy_says_hits_were_left_out() -> None:
+DROPPED_NOTE = "[1 matching article(s) left out: LexAPI did not establish their text for the date.]"
+
+
+@pytest.mark.parametrize(
+    ("name", "starts"),
+    [
+        ("legislation-semantic.unresolved", "LexAPI found no matching legislation."),
+        ("legislation-semantic.mixed", "[1] " + SYN),
+    ],
+)
+def test_search_tool_drop_policy_always_says_how_many_were_left_out(name: str, starts: str) -> None:
+    tool, _ = make(LexAPISearchLegislationTool, "/legislation/semantic", name, unresolved="drop")
+    message = call(tool, {"query": "q", "as_of": "2099-06-01"})
+    content = str(message.content)
+    assert content.startswith(starts)
+    assert content.endswith("\n\n" + DROPPED_NOTE)
+    assert "MUST-NOT-LEAK" not in content
+
+
+def test_search_tool_keep_labelled_labels_the_latest_text() -> None:
     tool, _ = make(
         LexAPISearchLegislationTool,
         "/legislation/semantic",
         "legislation-semantic.unresolved",
-        unresolved="drop",
+        unresolved="keep_labelled",
     )
-    message = call(tool, {"query": "q", "as_of": "2099-06-01"})
-    assert "1 hit(s) without a text for the date were left out" in str(message.content)
-    assert "MUST-NOT-LEAK" not in str(message.content)
+    content = str(call(tool, {"query": "q", "as_of": "2099-06-01"}).content)
+    assert content.startswith("[1] [Latest indexed text of CELEX 32099L0003 art_12; not est")
+
+
+def test_search_tool_with_only_an_async_client_raises_the_configuration_error() -> None:
+    stub = stub_for("/legislation/semantic", load("legislation-semantic.mixed"))
+    _, async_client = offline_clients(stub)
+    tool = LexAPISearchLegislationTool(async_client=async_client)
+    with pytest.raises(ValueError, match="only an async_client") as info:
+        tool.invoke({"query": "q"})
+    assert not isinstance(info.value, ToolException)
 
 
 def test_search_tool_bad_date_is_a_tool_exception() -> None:
     tool, stub = make(
         LexAPISearchLegislationTool, "/legislation/semantic", "legislation-semantic.mixed"
     )
-    with pytest.raises(ToolException, match="Invalid argument"):
+    with pytest.raises(ToolException) as info:
         tool.invoke({"query": "q", "as_of": "2099-02-30"})
+    assert str(info.value) == (
+        "Invalid argument: as_of must be a date in the form YYYY-MM-DD; got '2099-02-30'"
+    )
     assert stub.requests == []
 
 
@@ -119,16 +149,56 @@ def test_read_whole_document_asks_for_full_text_too() -> None:
     assert str(message.content).count("Source: CELEX 32099R0001") == 3
 
 
-def test_read_whole_document_stops_at_an_article_boundary_and_lists_the_rest() -> None:
-    tool, _ = make(LexAPIReadDocumentTool, "/documentContent", "document.read", max_chars=200)
-    message = call(tool, {"celex": "32099R0001"})
+def long_document(*sizes: int, prefix: str = SYN) -> dict[str, Any]:
+    body: dict[str, Any] = load("document.read")
+    for article, size in zip(body["document"]["content"]["articles"], sizes, strict=True):
+        article["content"] = prefix + "z" * (size - len(prefix))
+    return body
+
+
+def read(body: dict[str, Any], **kwargs: Any) -> ToolMessage:
+    client, _ = offline_clients(stub_for("/documentContent", body))
+    return call(LexAPIReadDocumentTool(client=client, **kwargs), {"celex": "32099R0001"})
+
+
+def test_read_budget_bounds_the_text_and_lists_the_rest() -> None:
+    message = read(long_document(150, 100, 100), max_chars=300)
     content = str(message.content)
-    assert content.count("Source:") == 1
+    assert content.count("Source:") == 2
     assert content.endswith(
-        "[Not shown: 2 more article(s) of CELEX 32099R0001: art_2, art_3. "
+        "[Not shown: 1 more article(s) of CELEX 32099R0001: art_3. "
         "Read one with the article argument.]"
     )
-    assert message.artifact["report"]["returned"] == 1
+    report = message.artifact["report"]
+    assert (report["returned"], report["not_shown"], report["truncated"]) == (2, 1, 0)
+
+
+def test_read_budget_counts_only_what_was_shown_as_truncated() -> None:
+    message = read(long_document(500, 500, 100, prefix=""), max_chars=300)
+    content = str(message.content)
+    assert content.count("Source:") == 1
+    assert "[Text cut by langchain-lexapi: " in content
+    assert content.endswith("art_2, art_3. Read one with the article argument.]")
+    report = message.artifact["report"]
+    assert (report["returned"], report["not_shown"], report["truncated"]) == (1, 2, 1)
+
+
+def test_read_text_shown_never_exceeds_the_budget() -> None:
+    for sizes in [(250, 40, 40), (90, 90, 90), (400, 10, 10), (10, 10, 400)]:
+        message = read(long_document(*sizes), max_chars=200)
+        docs = message.artifact["passages"]
+        texts = [str(message.content).split(f"[{n}] ", 1)[1] for n in range(1, len(docs) + 1)]
+        shown = sum(len(t.split("\nSource: ", 1)[0]) for t in texts)
+        assert shown <= 200 + len(
+            "\n[Text cut by langchain-lexapi: 000 of 000 characters shown. "
+            "The full text is at the source.]"
+        )
+
+
+def test_read_without_budget_returns_everything() -> None:
+    message = read(long_document(5000, 5000, 5000), max_chars=None)
+    assert str(message.content).count("Source:") == 3
+    assert message.artifact["report"]["not_shown"] == 0
 
 
 def test_read_missing_article_says_no_text() -> None:

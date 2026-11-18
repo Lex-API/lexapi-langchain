@@ -125,3 +125,42 @@ def test_handle_tool_error_turns_it_into_a_message_when_asked() -> None:
     client, _ = offline_clients(failing("error-402", 402))
     tool = LexAPISearchLegislationTool(client=client, handle_tool_error=True)
     assert str(tool.invoke({"query": "q"})).startswith("LexAPI error CREDITS_EXHAUSTED")
+
+
+@pytest.mark.parametrize(
+    ("name", "status", "expected"),
+    [
+        (
+            "error-429",
+            429,
+            "LexAPI error RATE_LIMITED (HTTP 429): Rate limit exceeded. Retry after 7 s.",
+        ),
+        (
+            "error-402",
+            402,
+            "LexAPI error CREDITS_EXHAUSTED (HTTP 402): Credit pool exhausted. "
+            "Credits reset at 2099-07-01T00:00:00.000Z.",
+        ),
+        (
+            "error-403-past-due",
+            403,
+            "LexAPI error PAYMENT_PAST_DUE (HTTP 403): Payment past due: Your subscription "
+            "payment failed, so API requests are refused. "
+            "Billing: https://lex-api.com/dashboard#billing",
+        ),
+        ("error-401", 401, "LexAPI error UNAUTHORIZED (HTTP 401): Invalid API key."),
+    ],
+)
+def test_tool_error_text_is_sentences(name: str, status: int, expected: str) -> None:
+    client, _ = offline_clients(failing(name, status))
+    with pytest.raises(ToolException) as info:
+        LexAPISearchLegislationTool(client=client).invoke({"query": "q"})
+    assert str(info.value) == expected
+
+
+def test_terminal_punctuation_is_not_doubled() -> None:
+    body = {"success": False, "error": {"code": "RATE_LIMITED", "message": "Slow down!"}}
+    client, _ = offline_clients(Stub(routes={"/legislation/semantic": (429, body)}))
+    with pytest.raises(ToolException) as info:
+        LexAPISearchLegislationTool(client=client).invoke({"query": "q"})
+    assert str(info.value) == "LexAPI error RATE_LIMITED (HTTP 429): Slow down! Retry after 7 s."

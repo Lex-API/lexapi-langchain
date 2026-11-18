@@ -36,7 +36,8 @@ retriever = LexAPILegislationRetriever(k=3, as_of="2019-06-01")
 docs = retriever.invoke("right to erasure")
 for doc in docs:
     print(doc.page_content)
-    print(doc.metadata["cite_celex"], doc.metadata["text_withheld"])
+    # No cite_celex when a consolidated text does not name its act.
+    print(doc.metadata.get("cite_celex"), doc.metadata["text_withheld"])
 ```
 
 Case law. A hit's text is the whole decision; `max_chars` cuts it at a paragraph break and says so
@@ -74,10 +75,19 @@ print(message.content)
 print(message.artifact["report"]["units_charged"])
 ```
 
+`lexapi_read_document` returns at most `max_chars` (default 20,000) characters of text per call:
+whole articles, a single longer text cut at a paragraph break, then a list of the articles not
+shown so the model can ask for one. The numbering, the `Source:` lines and that list come on top of
+the bound. The tool's report counts `truncated` (texts cut) and `not_shown`.
+
 Pass your own SDK clients with `client=` (a `lexapi.LexAPI`) and `async_client=` (a
-`lexapi.AsyncLexAPI`) to control timeouts and retries. Without them, each retriever or tool builds
-its own pair from `api_key` (or `LEXAPI_API_KEY`) and `base_url`. With only `client=`, async calls
-run the sync client in an executor; with only `async_client=`, sync calls are refused.
+`lexapi.AsyncLexAPI`) to control timeouts, retries and their lifetime: this package never closes a
+client you pass in. Without them, each retriever or tool builds its own clients from `api_key` (or
+`LEXAPI_API_KEY`) and `base_url`: the sync client at construction, the async client on first async
+use. Close those with `close()` (sync client) or `aclose()` (both), or use the object as a context
+manager (`with` / `async with`). With only `client=`, async calls run the sync client in an
+executor; with only `async_client=`, sync calls are refused. Unknown constructor arguments raise a
+validation error.
 
 ## What a document holds
 
@@ -93,8 +103,10 @@ run the sync client in an executor; with only `async_client=`, sync calls are re
   `version_valid_until`, `ecli`, `case_number`, `court`, `decision_date`, `document_type`,
   `paragraph_number`.
 - `id`: `passage.id`, `lexapi:<celex>:<part>:<as_of>:<language>`. It is the same on every call that
-  returns the same passage. Within one result, a later passage with an id already returned is left
-  out (one with text replaces one without).
+  returns the same passage. Within one result, passages with the same id are returned once. They
+  rank: a text from the API, then a latest text under a label (`keep_labelled`), then a notice or
+  no text. A later passage replaces the earlier one only if it ranks strictly higher, and the
+  document keeps the position of the first.
 - `metadata["score"]` is the API's score, unchanged.
 
 ## The text for a date
@@ -127,7 +139,7 @@ fetches.
 Each call draws credits from your LexAPI plan. As documented by the API today:
 
 - Legislation search: 5 credits. With `as_of`, each version LexAPI does not hold yet is fetched (at
-  most 3 per search by default), at 0 to 5 credits each.
+  most 3 per search), at 0 to 5 credits each.
 - Case-law search: 5 credits.
 - `lexapi_read_document`: 5 credits, settled at 1 when LexAPI already holds the document and 4 when
   it is read from the Publications Office.
@@ -136,21 +148,27 @@ Each call draws credits from your LexAPI plan. As documented by the API today:
 
 See the [API reference](https://lex-api.com/docs) for current prices. To see what a call cost, use
 `invoke_with_report` / `ainvoke_with_report` on a retriever (it returns the documents and a
-`RetrievalReport` with `units_charged`, `credits_remaining` and the withheld, dropped and filtered
-counts), read `artifact["report"]` of a tool message, or handle the `lexapi_retrieval_report`
+`RetrievalReport` with `units_charged`, `credits_remaining`, the core's withheld, labelled, dropped
+and filtered counts, and what was returned: `returned`, `returned_withheld`, `returned_labelled`),
+read `artifact["report"]` of a tool message, or handle the `lexapi_retrieval_report`
 callback event, which every retriever call sends on its own run. The report is per call and is not
 stored on the retriever, so concurrent calls do not mix.
 
 ## Errors
 
-Errors are raised, never turned into an empty result: an empty list always means the API returned
-no matching hits.
+An error is never turned into an empty list. A result can still be empty without an error: no hit
+above the relevance floor, a `celex` restriction that matched nothing, hits left out by
+`unresolved="drop"` or `emit_withheld=False`, or hits without a CELEX number.
 
-- Retrievers raise the SDK's exceptions unchanged: `lexapi.CreditsExhaustedError` (402),
+- Retrievers raise the SDK's exceptions unchanged, with the API's own message (nothing is masked
+  or reworded): `lexapi.CreditsExhaustedError` (402),
   `lexapi.PaymentPastDueError` (403), `lexapi.RateLimitedError` (429, after the SDK's own
   retries), `lexapi.AuthenticationError` (401), and the rest of `lexapi.LexAPIError`.
 - Tools raise `langchain_core.tools.ToolException` with the API's error code and message, for
-  example `LexAPI error CREDITS_EXHAUSTED (HTTP 402): ...`. Set `handle_tool_error=True` on a tool
+  example `LexAPI error RATE_LIMITED (HTTP 429): Rate limit exceeded. Retry after 7 s.`, with
+  anything shaped like an API key masked. A bad `as_of` is `Invalid argument: ...`; a
+  configuration error (such as a tool given only an `async_client` and called synchronously) is
+  raised as itself. Set `handle_tool_error=True` on a tool
   to hand that message to the model instead of raising.
 
 The API key is never logged, never in `repr()` and never serialised.

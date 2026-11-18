@@ -7,7 +7,11 @@ establish for the date asked is replaced by a notice.
 
 from langchain_lexapi._documents import METADATA_ALIASES, REPORT_EVENT, RetrievalReport
 from langchain_lexapi._version import __version__
-from langchain_lexapi.retrievers import LexAPICaseLawRetriever, LexAPILegislationRetriever
+from langchain_lexapi.retrievers import (
+    InvalidArgumentError,
+    LexAPICaseLawRetriever,
+    LexAPILegislationRetriever,
+)
 from langchain_lexapi.tools import (
     LexAPILegislationAsOfTool,
     LexAPIReadDocumentTool,
@@ -17,6 +21,7 @@ from langchain_lexapi.tools import (
 __all__ = [
     "METADATA_ALIASES",
     "REPORT_EVENT",
+    "InvalidArgumentError",
     "LexAPICaseLawRetriever",
     "LexAPILegislationAsOfTool",
     "LexAPILegislationRetriever",
