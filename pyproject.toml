@@ -63,7 +63,7 @@ allow-direct-references = true
 packages = ["src/langchain_lexapi"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/langchain_lexapi", "tests", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
+include = ["src/langchain_lexapi", "tests", "README.md", "CHANGELOG.md", "SECURITY.md", "LICENSE", "pyproject.toml"]
 
 [tool.ruff]
 line-length = 100

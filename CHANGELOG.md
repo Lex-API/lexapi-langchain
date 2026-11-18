@@ -26,4 +26,9 @@ All notable changes to this project are documented here. The format follows
   client is built on first async use.
 - De-duplication by passage id: a text from the API ranks over a labelled latest text, which ranks
   over a notice; a later passage replaces an earlier one only if it ranks strictly higher.
-- `InvalidArgumentError` for a bad per-call `k` or `as_of`. Unknown constructor arguments raise.
+- `InvalidArgumentError` for a bad per-call `k` or `as_of`, also checked by
+  `lexapi_legislation_as_of` before any request. Unknown constructor arguments raise, and so do
+  clients passed together with `api_key` / `base_url`. Use after `close()` / `aclose()` raises.
+- An answer that could not be read gives tools a fixed error text that quotes nothing from it.
+- The search tool's description follows its `unresolved` policy, which is frozen; `model_copy`
+  regenerates it.

@@ -40,8 +40,9 @@ for doc in docs:
     print(doc.metadata.get("cite_celex"), doc.metadata["text_withheld"])
 ```
 
-Case law. A hit's text is the whole decision; `max_chars` cuts it at a paragraph break and says so
-in the text:
+Case law. A hit's text is the whole decision; `max_chars` bounds it: the text is cut at a paragraph
+break when one is near, otherwise at a line break, a space or the limit, and a note says so. The
+note and the `Source:` line come on top of the bound:
 
 ```python
 from langchain_lexapi import LexAPICaseLawRetriever
@@ -76,9 +77,9 @@ print(message.artifact["report"]["units_charged"])
 ```
 
 `lexapi_read_document` returns at most `max_chars` (default 20,000) characters of text per call:
-whole articles, a single longer text cut at a paragraph break, then a list of the articles not
-shown so the model can ask for one. The numbering, the `Source:` lines and that list come on top of
-the bound. The tool's report counts `truncated` (texts cut) and `not_shown`.
+whole articles, a single longer text cut at a paragraph break when one is near (otherwise at a line
+break, a space or the limit), then a list of the articles not shown so the model can ask for one.
+The numbering, the cut note, the `Source:` lines and that list come on top of the bound. The tool's report counts `truncated` (texts cut) and `not_shown`.
 
 Pass your own SDK clients with `client=` (a `lexapi.LexAPI`) and `async_client=` (a
 `lexapi.AsyncLexAPI`) to control timeouts, retries and their lifetime: this package never closes a
@@ -112,8 +113,10 @@ validation error.
 ## The text for a date
 
 - With `as_of`, the API answers each hit with the version listed for that date. A hit it could not
-  establish for the date still carries its latest text in the API response; this package does not
-  pass that text on.
+  establish for the date still carries its latest text in the API response. By default
+  (`unresolved="withhold"`) this package does not pass that text on; `"drop"` leaves the hit out,
+  and `"keep_labelled"` passes the latest text on under a label saying it is not established for
+  the date.
 - `unresolved="withhold"` (the default) returns such a hit as a document whose content is a notice
   with the reason, and `metadata["text_withheld"] = True`. `"drop"` leaves it out.
   `"keep_labelled"` returns the latest text under a label saying it is not established for the
@@ -166,9 +169,13 @@ above the relevance floor, a `celex` restriction that matched nothing, hits left
   retries), `lexapi.AuthenticationError` (401), and the rest of `lexapi.LexAPIError`.
 - Tools raise `langchain_core.tools.ToolException` with the API's error code and message, for
   example `LexAPI error RATE_LIMITED (HTTP 429): Rate limit exceeded. Retry after 7 s.`, with
-  anything shaped like an API key masked. A bad `as_of` is `Invalid argument: ...`; a
-  configuration error (such as a tool given only an `async_client` and called synchronously) is
-  raised as itself. Set `handle_tool_error=True` on a tool
+  anything shaped like an API key masked. An answer that could not be read gives
+  `LexAPI error INVALID_RESPONSE (HTTP 200): The answer could not be read.` and quotes nothing from
+  it. An argument that matches the tool's schema but is an impossible date (`2099-02-30`) gives
+  `Invalid argument: ...` before any request; an argument that does not match the tool's schema
+  (`as_of="1 June 2099"`) raises the framework's validation error. Use after `close()` gives
+  `... is closed`. A configuration error (such as a tool given only an `async_client` and called
+  synchronously) is raised as itself. Set `handle_tool_error=True` on a tool
   to hand that message to the model instead of raising.
 
 The API key is never logged, never in `repr()` and never serialised.
@@ -180,7 +187,9 @@ The API key is never logged, never in `repr()` and never serialised.
 - Consolidated texts have no legal force: they are documentation. Cite the act as published in the
   Official Journal (`metadata["cite_celex"]`).
 - A text is passed on as the text for a date only when LexAPI established it for that date. For any
-  other hit, this package returns a notice with the reason LexAPI gave, not the text.
+  other hit, by default (`unresolved="withhold"`) this package returns a notice with the reason
+  LexAPI gave, not the text; `"drop"` leaves the hit out, and `"keep_labelled"` returns the latest
+  text under a label saying it is not established for the date.
 - It does not call a language model, build prompts or chains, embed texts or cache results.
 
 ## Tests

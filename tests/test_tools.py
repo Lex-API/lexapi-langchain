@@ -68,16 +68,16 @@ def test_search_tool_empty_result_says_so() -> None:
         LexAPISearchLegislationTool, "/legislation/semantic", "legislation-semantic.empty"
     )
     message = call(tool, {"query": "nothing"})
-    assert message.content == "LexAPI found no matching legislation."
+    assert message.content == "LexAPI returned no matching articles."
 
 
-DROPPED_NOTE = "[1 matching article(s) left out: LexAPI did not establish their text for the date.]"
+DROPPED_NOTE = "[1 hit(s) left out: LexAPI did not establish their text for 2099-06-01.]"
 
 
 @pytest.mark.parametrize(
     ("name", "starts"),
     [
-        ("legislation-semantic.unresolved", "LexAPI found no matching legislation."),
+        ("legislation-semantic.unresolved", "LexAPI returned no matching articles."),
         ("legislation-semantic.mixed", "[1] " + SYN),
     ],
 )
@@ -253,7 +253,7 @@ def test_as_of_answer_without_document() -> None:
     stub = stub_for("/legislation/as-of", body)
     client, _ = offline_clients(stub)
     message = call(LexAPILegislationAsOfTool(client=client), {"celex": "x", "as_of": "2099-06-01"})
-    assert message.content == "LexAPI's answer named no document."
+    assert message.content == "LexAPI returned no answer for CELEX x."
 
 
 # ── async ───────────────────────────────────────────────────────────────

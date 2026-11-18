@@ -125,24 +125,42 @@ NOTE = "\n[Text cut by langchain-lexapi: "
     ],
 )
 def test_cut_text_never_shows_nothing(text: str) -> None:
-    cut = cut_text(text, 200)
-    assert cut is not None
+    cut, was_cut = cut_text(text, 200)
+    assert was_cut
     kept, note = cut.split(NOTE, 1)
     assert kept.strip()
     assert len(kept) <= 200
     assert text.lstrip().startswith(kept)
-    assert note.startswith(f"{len(kept)} of {len(text)} characters shown.")
+    assert note == (
+        f"{len(kept)} of {len(text)} characters shown. The full text is at the source.]"
+    )
+
+
+def test_a_separator_right_at_the_limit_is_used() -> None:
+    # The space at index 10 (just past the 10 kept characters) is used, not
+    # the earlier one at index 4.
+    cut, was_cut = cut_text("aaaa bbbbb cccc", 10)
+    assert was_cut and cut.startswith("aaaa bbbbb" + NOTE)
+    assert cut_text("aaaa\nbbbbb\ncccc", 10)[0].startswith("aaaa\nbbbbb" + NOTE)
+
+
+def test_leading_whitespace_is_stripped_when_the_rest_fits() -> None:
+    text = "\n\n   " + "x" * 100
+    assert cut_text(text, 100) == ("x" * 100, False)
+    assert cut_text("x" * 100, 100) == ("x" * 100, False)
 
 
 def test_cut_text_property() -> None:
     rng = random.Random(7)
     alphabet = ["a", "b", " ", "\n", "\n\n", "\t"]
-    for _ in range(2000):
+    for _ in range(3000):
         text = "".join(rng.choice(alphabet) for _ in range(rng.randrange(0, 400)))
         limit = rng.randrange(1, 300)
-        cut = cut_text(text, limit)
-        if cut is None:
-            assert len(text) <= limit or len(text.lstrip()) <= limit
+        cut, was_cut = cut_text(text, limit)
+        if not was_cut:
+            assert NOTE not in cut
+            assert cut in (text, text.lstrip())
+            assert len(cut) <= limit
             continue
         kept, note = cut.split(NOTE, 1)
         assert kept.strip(), repr(text)

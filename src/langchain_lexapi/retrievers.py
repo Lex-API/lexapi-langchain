@@ -185,11 +185,13 @@ class LexAPILegislationRetriever(_LexAPIRetriever):
 
     With ``as_of`` the API answers each hit with the version listed for that
     date. A hit it could not establish for the date still carries its latest
-    text in the API response; that text is not passed on. By default
-    (``unresolved="withhold"``) the hit becomes a document whose content is a
+    text in the API response. By default (``unresolved="withhold"``) that
+    text is not passed on: the hit becomes a document whose content is a
     notice saying no text is established for the date and why, with
     ``metadata["text_withheld"] = True``. Do not index such documents in a
-    vector store.
+    vector store. ``"drop"`` leaves such hits out; ``"keep_labelled"``
+    passes the latest text on under a label saying it is not established
+    for the date.
 
     Cost: 5 credits per search. With ``as_of``, each version LexAPI does not
     hold yet is fetched (at most 3 per search), at 0 to 5 credits
@@ -274,9 +276,10 @@ class LexAPICaseLawRetriever(_LexAPIRetriever):
 
     The search is sent with ``include_text=True``. A hit's text is the whole
     decision, not the matching paragraph, so documents can be long; set
-    ``max_chars`` to cut each text at a paragraph break, with a note saying
-    it was cut. A hit without text gets a notice, never its snippet or
-    summary.
+    ``max_chars`` to bound each text: it is cut at a paragraph break when
+    one is near, otherwise at a line break, a space or the limit, with a note
+    saying it was cut (the note and the ``Source:`` line come on top). A hit
+    without text gets a notice, never its snippet or summary.
 
     ``k`` is the number of hits asked for; fewer documents can come back.
     Cost: 5 credits per search. See the API reference for current prices.

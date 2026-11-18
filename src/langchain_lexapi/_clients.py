@@ -20,13 +20,19 @@ from langchain_lexapi._version import __version__
 USER_AGENT_SUFFIX = f"langchain-lexapi/{__version__}"
 
 
+class ClientClosedError(RuntimeError):
+    """The retriever or tool was used after ``close()`` / ``aclose()``."""
+
+
 class LexAPIClientFields(BaseModel):
     """Connection settings.
 
     Pass ``client`` and/or ``async_client`` to use your own SDK clients (you
     then control their lifetime), or ``api_key`` (else ``LEXAPI_API_KEY``)
     and optionally ``base_url`` to have them built for you: the sync client
-    at construction, the async one on first async use. The key is never
+    at construction, the async one on first async use. Passing clients
+    together with ``api_key`` or ``base_url`` is refused. After ``close()``
+    or ``aclose()`` the object cannot be used again. The key is never
     shown in ``repr`` and never serialised. Unknown constructor arguments
     raise.
     """
@@ -47,9 +53,13 @@ class LexAPIClientFields(BaseModel):
     _sync: LexAPI | None = PrivateAttr(default=None)
     _async: AsyncLexAPI | None = PrivateAttr(default=None)
     _owns_clients: bool = PrivateAttr(default=False)
+    _closed: bool = PrivateAttr(default=False)
 
     @model_validator(mode="after")
     def _build_clients(self) -> Self:
+        given = self.client is not None or self.async_client is not None
+        if given and (self.api_key is not None or self.base_url is not None):
+            raise ValueError("Pass either client/async_client or api_key/base_url, not both.")
         self._sync = self.client
         self._async = self.async_client
         if self.client is None and self.async_client is None:
@@ -66,7 +76,12 @@ class LexAPIClientFields(BaseModel):
             kwargs["base_url"] = self.base_url
         return kwargs
 
+    def _check_open(self) -> None:
+        if self._closed:
+            raise ClientClosedError(f"{type(self).__name__} is closed; create a new one.")
+
     def _sync_client(self) -> LexAPI:
+        self._check_open()
         if self._sync is None:
             raise ValueError(
                 f"{type(self).__name__} was given only an async_client; "
@@ -78,19 +93,23 @@ class LexAPIClientFields(BaseModel):
         """The async client: the one passed in, one built now (when this
         object builds its own clients), or ``None`` when only a sync client
         was passed in."""
+        self._check_open()
         if self._async is None and self._owns_clients:
             self._async = AsyncLexAPI(self._key(), **self._client_kwargs())
         return self._async
 
     def close(self) -> None:
         """Close the sync client this object built. A client passed in is
-        left open. An async client it built needs :meth:`aclose`."""
+        left open. An async client it built needs :meth:`aclose`. The object
+        cannot be used afterwards."""
+        self._closed = True
         if self._owns_clients and self._sync is not None:
             self._sync.close()
 
     async def aclose(self) -> None:
         """Close the sync and async clients this object built. Clients passed
-        in are left open."""
+        in are left open. The object cannot be used afterwards."""
+        self._closed = True
         if not self._owns_clients:
             return
         if self._async is not None:

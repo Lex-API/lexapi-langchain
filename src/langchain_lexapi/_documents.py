@@ -96,47 +96,49 @@ def passage_to_document(passage: Passage, *, include_citation_in_content: bool =
     return Document(page_content=content, metadata=passage_metadata(passage), id=passage.id)
 
 
-def cut_text(text: str, max_chars: int) -> str | None:
-    """``text`` cut to at most ``max_chars`` characters, followed by a note
-    saying it was cut; ``None`` when the text fits.
+def cut_text(text: str, max_chars: int) -> tuple[str, bool]:
+    """``text`` bounded to ``max_chars`` characters, and whether it was cut.
 
-    Leading whitespace is dropped first. The cut falls at the last blank
-    line, else the last line break, else the last space, provided at least
-    one character comes before it; otherwise it is a hard cut at
-    ``max_chars``. The note's counts are characters of ``text``."""
+    A text that fits is returned unchanged. Otherwise leading whitespace is
+    dropped; if the rest fits, it is returned without a note. Else the cut
+    falls at the last blank line at or before ``max_chars``, else the last
+    line break, else the last space, else at ``max_chars``; it never keeps
+    zero characters. A note follows the cut text; its counts are characters
+    of the original ``text``."""
     if len(text) <= max_chars:
-        return None
+        return text, False
     body = text.lstrip()
     if len(body) <= max_chars:
-        return None
+        return body, False
     # ``body`` starts with a non-space character, so a cut at a separator
     # after position 0 keeps at least that character.
-    window = body[:max_chars]
     kept = ""
     for separator in ("\n\n", "\n", " "):
-        at = window.rfind(separator)
+        at = body.rfind(separator, 0, max_chars + 1)
         if at > 0:
-            kept = window[:at].rstrip()
+            kept = body[:at].rstrip()
             break
     if not kept:
-        kept = window.rstrip()
+        kept = body[:max_chars].rstrip()
     return (
         f"{kept}\n[Text cut by langchain-lexapi: {len(kept)} of {len(text)} characters "
-        "shown. The full text is at the source.]"
+        "shown. The full text is at the source.]",
+        True,
     )
 
 
 def truncate_passage(passage: Passage, max_chars: int | None) -> tuple[Passage, bool]:
-    """The passage with its text cut to ``max_chars``, and whether it was cut.
+    """The passage with its text bounded to ``max_chars``, and whether it
+    was cut.
 
     Only ``text`` changes; citation, id and metadata stay those of the
     passage."""
     if max_chars is None or passage.text is None:
         return passage, False
-    cut = cut_text(passage.text, max_chars)
-    if cut is None:
+    text, was_cut = cut_text(passage.text, max_chars)
+    if text == passage.text:
         return passage, False
-    return dataclasses.replace(passage, text=cut), True
+    return dataclasses.replace(passage, text=text), was_cut
 
 
 def rank(passage: Passage) -> int:
