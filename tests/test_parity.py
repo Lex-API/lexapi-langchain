@@ -142,3 +142,55 @@ def test_search_tool_names_itself_when_only_an_async_client_was_given() -> None:
     with pytest.raises(ValueError) as info:
         LexAPISearchLegislationTool(async_client=async_client).invoke({"query": "q"})
     assert str(info.value).startswith("LexAPISearchLegislationTool was given only an async_client")
+
+
+def test_a_later_article_that_exactly_fills_the_budget_is_shown() -> None:
+    message = read(document("a" * 150, "b" * 300, "c" * 50), 450)
+    assert [p["article_ref"] for p in message.artifact["passages"]] == ["art_1", "art_2"]
+    assert message.artifact["report"]["not_shown"] == 1
+
+
+@pytest.mark.parametrize(
+    ("cls", "args", "expected"),
+    [
+        (
+            LexAPIReadDocumentTool,
+            {"celex": "32099R0001", "article": "  "},
+            "Invalid argument: article must not be empty",
+        ),
+        (
+            LexAPILegislationAsOfTool,
+            {"celex": "32099R0001", "as_of": "2099-06-01", "provision": "\t"},
+            "Invalid argument: provision must not be empty",
+        ),
+    ],
+)
+async def test_blank_article_and_provision_are_refused(
+    cls: type[Any], args: dict[str, Any], expected: str
+) -> None:
+    stub = Stub(routes=dict(ROUTES))
+    client, async_client = offline_clients(stub)
+    for kwargs in ({"client": client, "async_client": async_client}, {"client": client}):
+        tool = cls(**kwargs)
+        with pytest.raises(ToolException) as info:
+            tool.invoke(args)
+        assert str(info.value) == expected
+        with pytest.raises(ToolException) as info:
+            await tool.ainvoke(args)
+        assert str(info.value) == expected
+    assert stub.requests == []
+
+
+@pytest.mark.parametrize(
+    ("cls", "args"),
+    [
+        (LexAPIReadDocumentTool, {"celex": "32099R0001"}),
+        (LexAPILegislationAsOfTool, {"celex": "32099R0001", "as_of": "2099-06-01"}),
+    ],
+)
+def test_absent_article_and_provision_are_not_given(cls: type[Any], args: dict[str, Any]) -> None:
+    stub = Stub(routes=dict(ROUTES))
+    client, _ = offline_clients(stub)
+    cls(client=client).invoke(args)
+    (body,) = stub.bodies()
+    assert "articleId" not in body and "provision" not in body

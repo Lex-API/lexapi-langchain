@@ -9,15 +9,18 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - `lexapi-client` pinned to `19da4dd`, which checks document and as-of answers against their
-  documented shape. Such answers (no `document`, say) now give the tools'
-  `LexAPI error INVALID_RESPONSE (HTTP 200): The answer could not be read.`; the text without the
+  documented shape and reads answers as strict JSON (`NaN`/`Infinity` are refused); for these,
+  retrievers raise `lexapi.InvalidResponseError` and tools give the unreadable-answer text,
+  `LexAPI error INVALID_RESPONSE (HTTP 200): The answer could not be read.` The text without the
   status remains for this package's additional checks.
 
 ### Fixed
 
 - Read tool budget: once the first article alone is over the budget, nothing else is shown, and
   the cut note is not counted; the articles shown are always a prefix of the document's.
-- A `query` or `celex` that is only whitespace is refused before any request.
+- Empty or whitespace-only `query`/`celex`: tools give `Invalid argument: …`, retrievers raise
+  `InvalidArgumentError`. A whitespace-only `article` (read tool) or `provision` (as-of tool) is
+  refused too; an absent one is still "not given". All before any request.
 - The search tool given only an async client and called synchronously names itself in its error.
 
 ## [0.1.0] - not released yet

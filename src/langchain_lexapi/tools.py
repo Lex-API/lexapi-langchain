@@ -94,6 +94,12 @@ def _check_celex(celex: str) -> None:
         raise InvalidArgumentError("celex must not be empty")
 
 
+def _check_optional(name: str, value: str | None) -> None:
+    """An optional argument may be absent (``None``) but not blank."""
+    if value is not None and not value.strip():
+        raise InvalidArgumentError(f"{name} must not be empty")
+
+
 def _unreadable_answer() -> InvalidResponseError:
     """For a 2xx answer that LexAPI's client accepted but that fails one of
     this package's additional checks. The status is not known at this
@@ -511,6 +517,7 @@ class LexAPIReadDocumentTool(_LexAPITool):
         failure: Exception | None = None
         try:
             _check_celex(celex)
+            _check_optional("article", article)
             response = self._sync_client().get_document(celex, **self._request(article, language))
         except _TOOL_ERRORS as error:
             failure = error
@@ -542,6 +549,7 @@ class LexAPIReadDocumentTool(_LexAPITool):
         failure = None
         try:
             _check_celex(celex)
+            _check_optional("article", article)
             response = await client.get_document(celex, **self._request(article, language))
         except _TOOL_ERRORS as error:
             failure = error
@@ -634,6 +642,7 @@ class LexAPILegislationAsOfTool(_LexAPITool):
         failure: Exception | None = None
         try:
             _check_celex(celex)
+            _check_optional("provision", provision)
             request = self._request(as_of, provision, language)
             response = self._sync_client().legislation_as_of(celex, **request)
         except _TOOL_ERRORS as error:
@@ -655,6 +664,7 @@ class LexAPILegislationAsOfTool(_LexAPITool):
         failure: Exception | None = None
         try:
             _check_celex(celex)
+            _check_optional("provision", provision)
             request = self._request(as_of, provision, language)
             client = self._async_client()
         except _TOOL_ERRORS as error:
