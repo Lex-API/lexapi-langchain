@@ -1,0 +1,29 @@
+{
+  "success": true,
+  "document": {
+    "celex": "32099R0001",
+    "title": "Regulation (EU) 2099/1 (synthetic)",
+    "language": "en",
+    "eli": "http://data.europa.eu/eli/reg/2099/1/oj",
+    "content": {
+      "articles": [
+        {
+          "id": "art_2",
+          "number": "Article 2",
+          "title": "Scope",
+          "content": "[SYNTHETIC FIXTURE - not the text of the act] Article 2 text."
+        }
+      ]
+    },
+    "urls": {
+      "html": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32099R0001"
+    },
+    "provenance": {
+      "sourceUrl": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32099R0001"
+    }
+  },
+  "credits": {
+    "operation_weight": 1,
+    "remaining": 994
+  }
+}
