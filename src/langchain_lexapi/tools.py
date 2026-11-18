@@ -89,6 +89,11 @@ def tool_error(error: LexAPIError) -> ToolException:
     return ToolException(_KEY_PATTERN.sub("lex_***", "".join(parts)))
 
 
+def _check_celex(celex: str) -> None:
+    if not isinstance(celex, str) or not celex.strip():
+        raise InvalidArgumentError("celex must not be empty")
+
+
 def _unreadable_answer() -> InvalidResponseError:
     """For a 2xx answer that LexAPI's client accepted but that fails one of
     this package's additional checks. The status is not known at this
@@ -374,7 +379,7 @@ class LexAPISearchLegislationTool(_LexAPITool):
         overrides = {"as_of": as_of} if as_of is not None else {}
         failure: Exception | None = None
         try:
-            self._check_open()
+            self._sync_client()  # names this tool when only an async client was given
             documents, report = self._retriever(self._async).invoke_with_report(
                 query, config, **overrides
             )
@@ -439,7 +444,8 @@ class LexAPIReadDocumentTool(_LexAPITool):
     instead, so the model can ask for one. Only the first article is cut,
     when it alone is longer than ``max_chars``: at a paragraph break when one
     falls in the second half of the limit, otherwise at a line break or a
-    space there, otherwise at the limit, with a note. The numbering, the cut
+    space there, otherwise at the limit, with a note; nothing else is then
+    shown. The numbering, the cut
     note, the ``Source:`` lines and the list of articles not shown come on
     top of the bound. The description states the budget; ``max_chars`` is
     frozen so the description stays true.
@@ -504,6 +510,7 @@ class LexAPIReadDocumentTool(_LexAPITool):
     ) -> tuple[str, Artifact]:
         failure: Exception | None = None
         try:
+            _check_celex(celex)
             response = self._sync_client().get_document(celex, **self._request(article, language))
         except _TOOL_ERRORS as error:
             failure = error
@@ -534,6 +541,7 @@ class LexAPIReadDocumentTool(_LexAPITool):
             return fallback
         failure = None
         try:
+            _check_celex(celex)
             response = await client.get_document(celex, **self._request(article, language))
         except _TOOL_ERRORS as error:
             failure = error
@@ -625,6 +633,7 @@ class LexAPILegislationAsOfTool(_LexAPITool):
     ) -> tuple[str, Artifact]:
         failure: Exception | None = None
         try:
+            _check_celex(celex)
             request = self._request(as_of, provision, language)
             response = self._sync_client().legislation_as_of(celex, **request)
         except _TOOL_ERRORS as error:
@@ -645,6 +654,7 @@ class LexAPILegislationAsOfTool(_LexAPITool):
     ) -> tuple[str, Artifact]:
         failure: Exception | None = None
         try:
+            _check_celex(celex)
             request = self._request(as_of, provision, language)
             client = self._async_client()
         except _TOOL_ERRORS as error:

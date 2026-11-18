@@ -337,3 +337,18 @@ def test_a_later_article_is_never_cut_to_fit() -> None:
     content = LexAPIReadDocumentTool(client=client, max_chars=500).invoke({"celex": "x"})
     assert "[2]" not in content and "Text cut" not in content
     assert content.endswith("art_2, art_3. Read one with the article argument.]")
+
+
+async def test_as_of_tool_rejects_a_whitespace_only_document() -> None:
+    """LexAPI's client accepts it; this package's own check does not."""
+    body = load("as-of.unresolved")
+    body["document"] = "   "
+    client, async_client = offline_clients(stub_for("/legislation/as-of", body))
+    tool = LexAPILegislationAsOfTool(client=client, async_client=async_client)
+    args = {"celex": "32099R0001", "as_of": "2099-06-01", "provision": "art_17"}
+    with pytest.raises(ToolException) as info:
+        tool.invoke(args)
+    assert str(info.value) == UNREADABLE
+    with pytest.raises(ToolException) as info:
+        await tool.ainvoke(args)
+    assert str(info.value) == UNREADABLE

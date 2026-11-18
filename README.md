@@ -80,12 +80,13 @@ print(message.artifact["report"]["units_charged"])
 ```
 
 `lexapi_read_document` returns at most `max_chars` (default 20,000) characters of text per call, in
-whole articles: once an article does not fit what is left, it and every later article are listed by
-reference instead, so the model can ask for one. Only the first article is cut, when it alone is
-longer than `max_chars`: at a paragraph break when one falls in the second half of the limit,
-otherwise at a line break or a space there, otherwise at the limit. The numbering, the cut note, the
-`Source:` lines and that list come on top of the bound. The tool's report counts `truncated` (texts
-cut) and `not_shown`. The tool's description states the budget.
+whole articles from the first: once an article does not fit what is left, it and every later article
+are listed by reference instead, so the model can ask for one. Only the first article is cut, when
+it alone is longer than `max_chars` (at a paragraph break when one falls in the second half of the
+limit, otherwise at a line break or a space there, otherwise at the limit), and then nothing else is
+shown. The numbering, the cut note, the `Source:` lines and that list come on top of the bound. The
+tool's report counts `truncated` (texts cut) and `not_shown`. The tool's description states the
+budget.
 
 Pass your own SDK clients with `client=` (a `lexapi.LexAPI`) and `async_client=` (a
 `lexapi.AsyncLexAPI`) to control timeouts, retries and their lifetime: this package never closes a
@@ -190,8 +191,10 @@ left out by `unresolved="drop"` or `emit_withheld=False`, or hits without a CELE
   same text. A few further checks are this package's own: a document without a `celex`, a `fullText`
   that is not a string, or a blank as-of `document` gives the text without the status, `LexAPI error
   INVALID_RESPONSE: The answer could not be read.`. Neither is ever a "no text" answer. An argument
-  that matches the tool's schema but is an impossible date (`2099-02-30`) gives `Invalid argument:
-  ...` before any request; an argument that does not match the tool's schema (`as_of="1 June 2099"`)
+  that matches the tool's schema but is an impossible date (`2099-02-30`), or a `query` or `celex`
+  that is only whitespace, gives `Invalid argument: ...` (for example `Invalid argument: query must
+  not be empty`) before any request; retrievers raise `InvalidArgumentError` with the same text
+  without the prefix; an argument that does not match the tool's schema (`as_of="1 June 2099"`)
   raises the framework's validation error. Use after `close()` / `aclose()` gives `<Class> is
   closed; create a new one.` A configuration error (such as a tool given only an `async_client` and
   called synchronously) is raised as itself. Set `handle_tool_error=True` on a tool to hand that

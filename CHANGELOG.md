@@ -13,6 +13,13 @@ All notable changes to this project are documented here. The format follows
   `LexAPI error INVALID_RESPONSE (HTTP 200): The answer could not be read.`; the text without the
   status remains for this package's additional checks.
 
+### Fixed
+
+- Read tool budget: once the first article alone is over the budget, nothing else is shown, and
+  the cut note is not counted; the articles shown are always a prefix of the document's.
+- A `query` or `celex` that is only whitespace is refused before any request.
+- The search tool given only an async client and called synchronously names itself in its error.
+
 ## [0.1.0] - not released yet
 
 ### Added
