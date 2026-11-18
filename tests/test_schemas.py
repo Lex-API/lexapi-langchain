@@ -74,6 +74,7 @@ def test_an_explicit_description_is_kept() -> None:
 
 def test_public_api() -> None:
     assert sorted(langchain_lexapi.__all__) == [
+        "ClientClosedError",
         "InvalidArgumentError",
         "LexAPICaseLawRetriever",
         "LexAPILegislationAsOfTool",

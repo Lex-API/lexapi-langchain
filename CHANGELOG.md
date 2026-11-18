@@ -29,6 +29,9 @@ All notable changes to this project are documented here. The format follows
 - `InvalidArgumentError` for a bad per-call `k` or `as_of`, also checked by
   `lexapi_legislation_as_of` before any request. Unknown constructor arguments raise, and so do
   clients passed together with `api_key` / `base_url`. Use after `close()` / `aclose()` raises.
-- An answer that could not be read gives tools a fixed error text that quotes nothing from it.
+- An answer that could not be read gives tools a fixed error text that quotes nothing from it,
+  including a document read or as-of answer that parsed but lacks its documented shape.
+- `ClientClosedError` is exported. A `model_copy` shares its source's clients and never closes
+  them; it raises `ClientClosedError` once the source has closed the clients it built.
 - The search tool's description follows its `unresolved` policy, which is frozen; `model_copy`
   regenerates it.

@@ -7,6 +7,7 @@ replaced by a notice; ``"drop"`` leaves it out and ``"keep_labelled"`` keeps
 the latest text under a label saying it is not established for the date.
 """
 
+from langchain_lexapi._clients import ClientClosedError
 from langchain_lexapi._documents import METADATA_ALIASES, REPORT_EVENT, RetrievalReport
 from langchain_lexapi._version import __version__
 from langchain_lexapi.retrievers import (
@@ -23,6 +24,7 @@ from langchain_lexapi.tools import (
 __all__ = [
     "METADATA_ALIASES",
     "REPORT_EVENT",
+    "ClientClosedError",
     "InvalidArgumentError",
     "LexAPICaseLawRetriever",
     "LexAPILegislationAsOfTool",

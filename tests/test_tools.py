@@ -247,15 +247,6 @@ def test_as_of_unresolved_carries_the_reason_and_counts_it() -> None:
     assert message.artifact["passages"][0]["text_withheld"] is True
 
 
-def test_as_of_answer_without_document() -> None:
-    body = load("as-of.unresolved")
-    body.pop("document")
-    stub = stub_for("/legislation/as-of", body)
-    client, _ = offline_clients(stub)
-    message = call(LexAPILegislationAsOfTool(client=client), {"celex": "x", "as_of": "2099-06-01"})
-    assert message.content == "LexAPI returned no answer for CELEX x."
-
-
 # ── async ───────────────────────────────────────────────────────────────
 
 

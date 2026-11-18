@@ -89,6 +89,43 @@ def tool_error(error: LexAPIError) -> ToolException:
     return ToolException(_KEY_PATTERN.sub("lex_***", "".join(parts)))
 
 
+def _unreadable_answer() -> InvalidResponseError:
+    """For a 2xx answer that parsed but lacks what its schema requires. The
+    status is not known at this point, so the fixed text names none."""
+    return InvalidResponseError("The answer does not have the documented shape.")
+
+
+def _is_object_list(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(item, dict) for item in value)
+
+
+def _document_answer_readable(response: DocumentResponse) -> bool:
+    """A document read must carry a ``document`` object; its ``content``,
+    when present and not null, an object; and ``content.articles``, when
+    present, a list of objects."""
+    document = response.get("document")
+    if not isinstance(document, dict):
+        return False
+    content = document.get("content")
+    if content is None:
+        return True
+    if not isinstance(content, dict):
+        return False
+    articles = content.get("articles")
+    return articles is None or _is_object_list(articles)
+
+
+def _as_of_answer_readable(response: LegislationAsOfResponse) -> bool:
+    """An as-of answer must name its document (a CELEX string) and say
+    whether it is resolved (a boolean), as its schema requires."""
+    document = response.get("document")
+    return (
+        isinstance(document, str)
+        and bool(document.strip())
+        and isinstance(response.get("asOfResolved"), bool)
+    )
+
+
 def _cause(error: Exception) -> Exception | None:
     """The exception to chain: none for an answer that could not be read,
     whose SDK message can quote the body."""
@@ -240,7 +277,11 @@ class LexAPISearchLegislationTool(_LexAPITool):
     def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
         """A copy; a generated description is regenerated for the copy's
         ``unresolved``."""
-        generated = self._generated_description() and "description" not in (update or {})
+        update = dict(update or {})
+        if "description" in update:
+            generated = update["description"] in _GENERATED_DESCRIPTIONS
+        else:
+            generated = self._generated_description()
         copy = super().model_copy(update=update, deep=deep)
         if generated:
             copy._set_generated_description()
@@ -337,8 +378,9 @@ class LexAPIReadDocumentTool(_LexAPITool):
     notices) in one output. Without ``article`` the output holds whole
     articles up to that bound and then lists the articles not shown, so the
     model can ask for one. A single text longer than ``max_chars`` is cut at
-    a paragraph break when one is near (otherwise at a line break, a space or
-    the limit), with a note. The numbering, the cut note, the ``Source:``
+    a paragraph break when one falls in the second half of the limit,
+    otherwise at a line break or a space there, otherwise at the limit, with
+    a note. The numbering, the cut note, the ``Source:``
     lines and the list of articles not shown come on top of the bound.
     Annexes and recitals are not included. Cost: 5 credits, settled at 1
     when LexAPI already holds the document and 4 when it is read from the
@@ -368,6 +410,8 @@ class LexAPIReadDocumentTool(_LexAPITool):
     def _render(
         self, response: DocumentResponse, celex: str, article: str | None
     ) -> tuple[str, Artifact]:
+        if not _document_answer_readable(response):
+            _fail(_unreadable_answer())
         result: PassageResult = lexapi_passages.from_document(response)
         documents, report, rest = to_documents(
             result, requested=None, max_chars=self.max_chars, budget=self.max_chars
@@ -492,10 +536,12 @@ class LexAPILegislationAsOfTool(_LexAPITool):
     def _render(
         response: LegislationAsOfResponse, celex: str, provision: str | None
     ) -> tuple[str, Artifact]:
+        if not _as_of_answer_readable(response):
+            _fail(_unreadable_answer())
         result = lexapi_passages.from_legislation_as_of(response, provision=provision)
         documents, report, _ = to_documents(result, requested=None)
-        if not documents:
-            return f"LexAPI returned no answer for CELEX {celex}.", _artifact(documents, report)
+        if not documents:  # a readable answer always names its document
+            _fail(_unreadable_answer())
         return documents[0].page_content, _artifact(documents, report)
 
     def _run(

@@ -9,6 +9,7 @@ are closed by its :meth:`~LexAPIClientFields.close` /
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Self
 
 from lexapi import AsyncLexAPI, LexAPI
@@ -24,6 +25,16 @@ class ClientClosedError(RuntimeError):
     """The retriever or tool was used after ``close()`` / ``aclose()``."""
 
 
+class _BuiltClients:
+    """Shared by an object that built its clients and every copy of it:
+    whether the builder has closed them."""
+
+    __slots__ = ("closed",)
+
+    def __init__(self) -> None:
+        self.closed = False
+
+
 class LexAPIClientFields(BaseModel):
     """Connection settings.
 
@@ -32,7 +43,9 @@ class LexAPIClientFields(BaseModel):
     and optionally ``base_url`` to have them built for you: the sync client
     at construction, the async one on first async use. Passing clients
     together with ``api_key`` or ``base_url`` is refused. After ``close()``
-    or ``aclose()`` the object cannot be used again. The key is never
+    or ``aclose()`` the object cannot be used again. A ``model_copy`` shares
+    the clients but never closes them; only the object that built them does,
+    and a copy used after that raises :class:`ClientClosedError`. The key is never
     shown in ``repr`` and never serialised. Unknown constructor arguments
     raise.
     """
@@ -54,6 +67,7 @@ class LexAPIClientFields(BaseModel):
     _async: AsyncLexAPI | None = PrivateAttr(default=None)
     _owns_clients: bool = PrivateAttr(default=False)
     _closed: bool = PrivateAttr(default=False)
+    _built: _BuiltClients = PrivateAttr(default_factory=_BuiltClients)
 
     @model_validator(mode="after")
     def _build_clients(self) -> Self:
@@ -76,8 +90,19 @@ class LexAPIClientFields(BaseModel):
             kwargs["base_url"] = self.base_url
         return kwargs
 
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
+        """A copy that shares this object's clients. The copy never closes
+        them; once the object that built them closes them, the copy raises
+        :class:`ClientClosedError`."""
+        copy = super().model_copy(update=update, deep=deep)
+        copy._sync, copy._async = self._sync, self._async
+        copy._built = self._built
+        copy._owns_clients = False
+        copy._closed = False
+        return copy
+
     def _check_open(self) -> None:
-        if self._closed:
+        if self._closed or self._built.closed:
             raise ClientClosedError(f"{type(self).__name__} is closed; create a new one.")
 
     def _sync_client(self) -> LexAPI:
@@ -103,7 +128,10 @@ class LexAPIClientFields(BaseModel):
         left open. An async client it built needs :meth:`aclose`. The object
         cannot be used afterwards."""
         self._closed = True
-        if self._owns_clients and self._sync is not None:
+        if not self._owns_clients:
+            return
+        self._built.closed = True
+        if self._sync is not None:
             self._sync.close()
 
     async def aclose(self) -> None:
@@ -112,6 +140,7 @@ class LexAPIClientFields(BaseModel):
         self._closed = True
         if not self._owns_clients:
             return
+        self._built.closed = True
         if self._async is not None:
             await self._async.close()
         if self._sync is not None:

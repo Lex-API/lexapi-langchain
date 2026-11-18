@@ -40,9 +40,7 @@ for doc in docs:
     print(doc.metadata.get("cite_celex"), doc.metadata["text_withheld"])
 ```
 
-Case law. A hit's text is the whole decision; `max_chars` bounds it: the text is cut at a paragraph
-break when one is near, otherwise at a line break, a space or the limit, and a note says so. The
-note and the `Source:` line come on top of the bound:
+Case law. A hit's text is the whole decision; `max_chars` bounds it: the text is cut at a paragraph break when one falls in the second half of the limit, otherwise at a line break or a space there, otherwise at the limit, and a note says so. The note and the `Source:` line come on top of the bound:
 
 ```python
 from langchain_lexapi import LexAPICaseLawRetriever
@@ -77,8 +75,7 @@ print(message.artifact["report"]["units_charged"])
 ```
 
 `lexapi_read_document` returns at most `max_chars` (default 20,000) characters of text per call:
-whole articles, a single longer text cut at a paragraph break when one is near (otherwise at a line
-break, a space or the limit), then a list of the articles not shown so the model can ask for one.
+whole articles, a single longer text cut at a paragraph break when one falls in the second half of the limit, otherwise at a line break or a space there, otherwise at the limit, then a list of the articles not shown so the model can ask for one.
 The numbering, the cut note, the `Source:` lines and that list come on top of the bound. The tool's report counts `truncated` (texts cut) and `not_shown`.
 
 Pass your own SDK clients with `client=` (a `lexapi.LexAPI`) and `async_client=` (a
@@ -164,6 +161,10 @@ it is never read as an empty result. A result can still be empty without an erro
 above the relevance floor, a `celex` restriction that matched nothing, hits left out by
 `unresolved="drop"` or `emit_withheld=False`, or hits without a CELEX number.
 
+- After `close()` / `aclose()`, retrievers raise `langchain_lexapi.ClientClosedError`
+  (`<Class> is closed; create a new one.`); tools raise `ToolException` with the same text. So
+  does a `model_copy` once the object it was copied from has closed the clients it built: a copy
+  shares those clients and never closes them.
 - Retrievers raise the SDK's exceptions unchanged, with the API's own message (nothing is masked
   or reworded): `lexapi.CreditsExhaustedError` (402),
   `lexapi.PaymentPastDueError` (403), `lexapi.RateLimitedError` (429, after the SDK's own
@@ -172,10 +173,12 @@ above the relevance floor, a `celex` restriction that matched nothing, hits left
   example `LexAPI error RATE_LIMITED (HTTP 429): Rate limit exceeded. Retry after 7 s.`, with
   anything shaped like an API key masked. An answer that could not be read gives
   `LexAPI error INVALID_RESPONSE (HTTP 200): The answer could not be read.` and quotes nothing from
-  it. An argument that matches the tool's schema but is an impossible date (`2099-02-30`) gives
+  it; a document read or as-of answer that parsed but lacks its documented shape (no `document`,
+  say) gives the same text without the status, `LexAPI error INVALID_RESPONSE: The answer could not
+  be read.`, never a "no text" answer. An argument that matches the tool's schema but is an impossible date (`2099-02-30`) gives
   `Invalid argument: ...` before any request; an argument that does not match the tool's schema
-  (`as_of="1 June 2099"`) raises the framework's validation error. Use after `close()` gives
-  `... is closed`. A configuration error (such as a tool given only an `async_client` and called
+  (`as_of="1 June 2099"`) raises the framework's validation error. Use after `close()` /
+  `aclose()` gives `<Class> is closed; create a new one.` A configuration error (such as a tool given only an `async_client` and called
   synchronously) is raised as itself. Set `handle_tool_error=True` on a tool
   to hand that message to the model instead of raising.
 

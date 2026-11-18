@@ -100,11 +100,12 @@ def cut_text(text: str, max_chars: int) -> tuple[str, bool]:
     """``text`` bounded to ``max_chars`` characters, and whether it was cut.
 
     A text that fits is returned unchanged. Otherwise leading whitespace is
-    dropped; if the rest fits, it is returned without a note. Else the cut
-    falls at the last blank line at or before ``max_chars``, else the last
-    line break, else the last space, else at ``max_chars``; it never keeps
-    zero characters. A note follows the cut text; its counts are characters
-    of the original ``text``."""
+    dropped; if the rest fits, it is returned without a note. Else the text
+    is cut at a paragraph break when one falls in the second half of the
+    limit, otherwise at a line break or a space there, otherwise at the
+    limit. "In the second half" means at a position from ``max_chars // 2``
+    to ``max_chars``. It never keeps zero characters. A note follows the cut
+    text; its counts are characters of the original ``text``."""
     if len(text) <= max_chars:
         return text, False
     body = text.lstrip()
@@ -115,7 +116,7 @@ def cut_text(text: str, max_chars: int) -> tuple[str, bool]:
     kept = ""
     for separator in ("\n\n", "\n", " "):
         at = body.rfind(separator, 0, max_chars + 1)
-        if at > 0:
+        if at > 0 and at >= max_chars // 2:
             kept = body[:at].rstrip()
             break
     if not kept:

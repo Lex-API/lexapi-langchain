@@ -277,9 +277,10 @@ class LexAPICaseLawRetriever(_LexAPIRetriever):
     The search is sent with ``include_text=True``. A hit's text is the whole
     decision, not the matching paragraph, so documents can be long; set
     ``max_chars`` to bound each text: it is cut at a paragraph break when
-    one is near, otherwise at a line break, a space or the limit, with a note
-    saying it was cut (the note and the ``Source:`` line come on top). A hit
-    without text gets a notice, never its snippet or summary.
+    one falls in the second half of the limit, otherwise at a line break or
+    a space there, otherwise at the limit, with a note saying it was cut
+    (the note and the ``Source:`` line come on top). A hit without text gets
+    a notice, never its snippet or summary.
 
     ``k`` is the number of hits asked for; fewer documents can come back.
     Cost: 5 credits per search. See the API reference for current prices.
@@ -299,8 +300,8 @@ class LexAPICaseLawRetriever(_LexAPIRetriever):
     date_from: datetime.date | None = None
     #: Only decisions on or before this date (``filters.date_to``).
     date_to: datetime.date | None = None
-    #: Cut each text to at most this many characters, at a paragraph break,
-    #: and say so in the text. ``None`` (the default) passes whole texts.
+    #: Cut each text to at most this many characters (see ``cut_text``) and
+    #: say so in the text. ``None`` (the default) passes whole texts.
     max_chars: int | None = Field(default=None, ge=200)
 
     def _request(self, options: dict[str, Any]) -> dict[str, Any]:

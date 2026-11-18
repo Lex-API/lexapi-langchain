@@ -118,8 +118,10 @@ def test_max_chars_cuts_at_a_paragraph_break_and_says_so() -> None:
 
 def test_cut_text_falls_back_to_line_then_space_then_hard_cut() -> None:
     assert cut_text("short", 10) == ("short", False)
+    # The blank line at 4 is in the first half of 12, so the line break at 10 is used.
     para = cut_text("aaaa\n\nbbbb\ncccc", 12)[0]
-    assert para.startswith("aaaa\n[Text cut")
+    assert para.startswith("aaaa\n\nbbbb\n[Text cut")
+    assert cut_text("aaaaaaa\n\nbbbb cccc", 12)[0].startswith("aaaaaaa\n[Text cut")
     line = cut_text("aaaa\nbbbb\ncccc", 12)[0]
     assert line.startswith("aaaa\nbbbb\n[Text cut")
     word = cut_text("aaaa bbbb cccc", 12)[0]
