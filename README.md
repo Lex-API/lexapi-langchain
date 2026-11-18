@@ -170,9 +170,9 @@ stored on the retriever, so concurrent calls do not mix.
 ## Errors
 
 An error is never turned into an empty list. An answer LexAPI's client cannot read raises an error;
-it is never read as an empty result. A result can still be empty without an error: no hit
-above the relevance floor, a `celex` restriction that matched nothing, hits left out by
-`unresolved="drop"` or `emit_withheld=False`, or hits without a CELEX number.
+a 2xx answer is never retried, and never read as an empty result. A result can still be empty
+without an error: no hit above the relevance floor, a `celex` restriction that matched nothing, hits
+left out by `unresolved="drop"` or `emit_withheld=False`, or hits without a CELEX number.
 
 - After `close()` / `aclose()`, retrievers raise `langchain_lexapi.ClientClosedError`
   (`<Class> is closed; create a new one.`); tools raise `ToolException` with the same text. So
@@ -185,16 +185,17 @@ above the relevance floor, a `celex` restriction that matched nothing, hits left
 - Tools raise `langchain_core.tools.ToolException` with the API's error code and message, for
   example `LexAPI error RATE_LIMITED (HTTP 429): Rate limit exceeded. Retry after 7 s.`, with
   anything shaped like an API key masked. An answer that could not be read gives `LexAPI error
-  INVALID_RESPONSE (HTTP 200): The answer could not be read.` and quotes nothing from it; a document
-  read or as-of answer that parsed but lacks its documented shape (no `document`, or a document
-  without a `celex`, say) gives the same text without the status, `LexAPI error INVALID_RESPONSE:
-  The answer could not be read.`, never a "no text" answer. An argument that matches the tool's
-  schema but is an impossible date (`2099-02-30`) gives `Invalid argument: ...` before any request;
-  an argument that does not match the tool's schema (`as_of="1 June 2099"`) raises the framework's
-  validation error. Use after `close()` / `aclose()` gives `<Class> is closed; create a new one.` A
-  configuration error (such as a tool given only an `async_client` and called synchronously) is
-  raised as itself. Set `handle_tool_error=True` on a tool to hand that message to the model instead
-  of raising.
+  INVALID_RESPONSE (HTTP 200): The answer could not be read.` and quotes nothing from it; an answer
+  without its documented fields (no `document`, say) is rejected by LexAPI's client and gives that
+  same text. A few further checks are this package's own: a document without a `celex`, a `fullText`
+  that is not a string, or a blank as-of `document` gives the text without the status, `LexAPI error
+  INVALID_RESPONSE: The answer could not be read.`. Neither is ever a "no text" answer. An argument
+  that matches the tool's schema but is an impossible date (`2099-02-30`) gives `Invalid argument:
+  ...` before any request; an argument that does not match the tool's schema (`as_of="1 June 2099"`)
+  raises the framework's validation error. Use after `close()` / `aclose()` gives `<Class> is
+  closed; create a new one.` A configuration error (such as a tool given only an `async_client` and
+  called synchronously) is raised as itself. Set `handle_tool_error=True` on a tool to hand that
+  message to the model instead of raising.
 
 The API key is never logged, never in `repr()` and never serialised.
 

@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `lexapi-client` pinned to `19da4dd`, which checks document and as-of answers against their
+  documented shape. Such answers (no `document`, say) now give the tools'
+  `LexAPI error INVALID_RESPONSE (HTTP 200): The answer could not be read.`; the text without the
+  status remains for this package's additional checks.
+
 ## [0.1.0] - not released yet
 
 ### Added

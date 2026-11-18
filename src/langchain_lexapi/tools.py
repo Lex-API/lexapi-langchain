@@ -90,8 +90,9 @@ def tool_error(error: LexAPIError) -> ToolException:
 
 
 def _unreadable_answer() -> InvalidResponseError:
-    """For a 2xx answer that parsed but lacks what its schema requires. The
-    status is not known at this point, so the fixed text names none."""
+    """For a 2xx answer that LexAPI's client accepted but that fails one of
+    this package's additional checks. The status is not known at this
+    point, so the fixed text names none."""
     return InvalidResponseError("The answer does not have the documented shape.")
 
 
@@ -103,7 +104,9 @@ def _document_answer_readable(response: DocumentResponse) -> bool:
     """A document read must carry a ``document`` object with a non-empty
     ``celex`` string; its ``content``, when present and not null, an object;
     ``content.fullText``, when present, a string; and ``content.articles``,
-    when present, a list of objects."""
+    when present, a list of objects. LexAPI's client checks the documented
+    fields itself; these checks are additional (it accepts ``document: {}``,
+    for example)."""
     document = response.get("document")
     if not isinstance(document, dict):
         return False
@@ -123,8 +126,10 @@ def _document_answer_readable(response: DocumentResponse) -> bool:
 
 
 def _as_of_answer_readable(response: LegislationAsOfResponse) -> bool:
-    """An as-of answer must name its document (a CELEX string) and say
-    whether it is resolved (a boolean), as its schema requires."""
+    """An as-of answer must name its document (a non-blank CELEX string)
+    and say whether it is resolved (a boolean). LexAPI's client checks the
+    documented fields itself; these checks are additional (it accepts a
+    whitespace-only ``document``, for example)."""
     document = response.get("document")
     return (
         isinstance(document, str)
