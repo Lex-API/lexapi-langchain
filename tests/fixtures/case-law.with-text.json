@@ -1,0 +1,52 @@
+{
+  "success": true,
+  "searchType": "semantic",
+  "results": [
+    {
+      "case_id": "snapshot-1",
+      "score": 0.83,
+      "case_name": "Synthetic v Fixture",
+      "case_number": "C-999/99",
+      "ecli": "ECLI:EU:C:2099:1",
+      "court": "Court of Justice",
+      "decision_date": "2099-05-13",
+      "language": "en",
+      "summary": "[SYNTHETIC FIXTURE - not the text of the act] MACHINE-WRITTEN-SUMMARY-MUST-NOT-APPEAR",
+      "snippet": "[SYNTHETIC FIXTURE - not the text of the act] CASE-SNIPPET-MUST-NOT-APPEAR",
+      "text": "[SYNTHETIC FIXTURE - not the text of the act] Judgment.\n\n1 This reference concerns a synthetic question.\n\n2 The Court answers it.\n\n3 Costs.",
+      "metadata": {
+        "celex_id": "62099CJ9901",
+        "document_type": "judgment",
+        "paragraph_number": 93
+      },
+      "provenance": {
+        "sourceUrl": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:62099CJ9901"
+      }
+    },
+    {
+      "case_id": "snapshot-2",
+      "score": 0.72,
+      "case_name": "Second v Fixture",
+      "case_number": "C-998/99",
+      "ecli": "ECLI:EU:C:2099:2",
+      "court": "Court of Justice",
+      "decision_date": "2099-05-13",
+      "language": "en",
+      "summary": "[SYNTHETIC FIXTURE - not the text of the act] MACHINE-WRITTEN-SUMMARY-MUST-NOT-APPEAR",
+      "snippet": "[SYNTHETIC FIXTURE - not the text of the act] CASE-SNIPPET-MUST-NOT-APPEAR",
+      "text": "[SYNTHETIC FIXTURE - not the text of the act] Order of the Court.",
+      "metadata": {
+        "celex_id": "62099CO9902",
+        "document_type": "order",
+        "paragraph_number": 4
+      },
+      "provenance": {
+        "sourceUrl": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:62099CO9902"
+      }
+    }
+  ],
+  "credits": {
+    "operation_weight": 5,
+    "remaining": 995
+  }
+}

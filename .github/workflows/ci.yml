@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv -e ".[dev]"
+      - name: Lint
+        run: |
+          .venv/bin/ruff check .
+          .venv/bin/ruff format --check .
+      - name: Type-check (strict)
+        run: .venv/bin/mypy
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The declared floors: Python 3.11 and the lowest version of every
+          # direct dependency (langchain-core 1.4.0).
+          - python-version: "3.11"
+            resolution: lowest-direct
+          - python-version: "3.11"
+            resolution: highest
+          - python-version: "3.12"
+            resolution: highest
+          - python-version: "3.13"
+            resolution: highest
+          - python-version: "3.14"
+            resolution: highest
+    name: test (${{ matrix.python-version }}, ${{ matrix.resolution }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install
+        run: |
+          uv venv --python ${{ matrix.python-version }} .venv
+          uv pip install --python .venv --resolution ${{ matrix.resolution }} -e ".[dev]"
+          uv pip list --python .venv | grep -iE "^(langchain-core|langchain-tests|lexapi-client|pydantic) "
+      - name: Test (offline)
+        env:
+          LANGCHAIN_TRACING_V2: "false"
+          LANGSMITH_TRACING: "false"
+        run: .venv/bin/pytest
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Build sdist and wheel
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv build twine
+          .venv/bin/python -m build
+          .venv/bin/twine check --strict dist/*

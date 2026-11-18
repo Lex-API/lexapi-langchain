@@ -1,0 +1,33 @@
+{
+  "success": true,
+  "searchType": "semantic-legislation",
+  "query": "synthetic",
+  "resultCount": 1,
+  "results": [
+    {
+      "id": "o-32099L0003-art_12",
+      "law_id": "32099L0003",
+      "law_title": "Directive (EU) 2099/3 (synthetic)",
+      "article_ref": "art_12",
+      "language": "en",
+      "score": 0.75,
+      "text": "[SYNTHETIC FIXTURE - not the text of the act] UNRESOLVED-LATEST-TEXT-MUST-NOT-LEAK",
+      "snippet": "[SYNTHETIC FIXTURE - not the text of the act] UNRESOLVED-LATEST-SNIPPET-MUST-NOT-LEAK",
+      "asOf": "2099-06-01",
+      "asOfResolved": false,
+      "asOfReason": "fetch_timeout",
+      "provenance": {
+        "sourceUrl": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32099L0003"
+      }
+    }
+  ],
+  "credits": {
+    "operation_weight": 5,
+    "remaining": 995
+  },
+  "asOf": "2099-06-01",
+  "asOfSummary": {
+    "liveFetches": 1,
+    "unresolved": 1
+  }
+}

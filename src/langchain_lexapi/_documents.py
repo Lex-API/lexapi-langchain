@@ -1,0 +1,237 @@
+"""Passages to LangChain documents.
+
+All text and metadata come from :mod:`lexapi.passages`. This module adds only
+LangChain's ``source`` alias, the optional cut of a long case-law text, and
+de-duplication by passage id.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from dataclasses import dataclass
+
+from langchain_core.documents import Document
+from lexapi.passages import Passage, PassageResult, format_passage
+
+#: Name of the callback event that carries a :class:`RetrievalReport`.
+REPORT_EVENT = "lexapi_retrieval_report"
+
+#: Metadata keys this package adds to :meth:`lexapi.passages.Passage.metadata`.
+#: ``source`` is LangChain's conventional key for where a document came from;
+#: it is the passage's ``url`` and is present only when ``url`` is.
+METADATA_ALIASES = ("source",)
+
+
+@dataclass(frozen=True)
+class RetrievalReport:
+    """What one retriever or tool call did. Immutable; one per call.
+
+    ``withheld``, ``kept_labelled``, ``dropped``, ``uncitable`` and
+    ``filtered_out`` are the :class:`lexapi.passages.PassageResult` counters
+    of the call, counted by the core before this package's de-duplication,
+    ``emit_withheld`` and read budget. What was actually returned is in
+    ``returned``, ``returned_withheld`` and ``returned_labelled``.
+    ``units_charged`` and ``credits_remaining`` are what the response
+    reported (``None`` when it reported nothing); they are per call, never
+    per document.
+    """
+
+    #: Hits asked for (the ``limit`` sent); ``None`` for calls without one.
+    requested: int | None
+    #: Documents returned.
+    returned: int
+    #: The date asked for, ``YYYY-MM-DD``; ``None`` when no date was asked.
+    as_of: str | None = None
+    #: Core count: passages whose text was withheld as not established for
+    #: ``as_of`` (before de-duplication).
+    withheld: int = 0
+    #: Core count: passages kept with the latest indexed text
+    #: (``unresolved="keep_labelled"``, before de-duplication).
+    kept_labelled: int = 0
+    #: Core count: hits left out by ``unresolved="drop"``.
+    dropped: int = 0
+    #: Core count: hits left out because the API sent no CELEX number.
+    uncitable: int = 0
+    #: Core count: passages removed by the ``celex`` restriction.
+    filtered_out: int = 0
+    #: Returned documents that are a withheld-text notice.
+    returned_withheld: int = 0
+    #: Returned documents that carry a labelled latest text.
+    returned_labelled: int = 0
+    #: Withheld passages not returned because ``emit_withheld=False``.
+    withheld_not_emitted: int = 0
+    #: Passages not returned because another passage with the same id ranked
+    #: at least as high (see :func:`to_documents`).
+    duplicates: int = 0
+    #: Returned documents whose text was cut to ``max_chars``.
+    truncated: int = 0
+    #: Passages not returned because the read tool's ``max_chars`` budget was
+    #: used up.
+    not_shown: int = 0
+    #: Credits the call cost, as the response reported them.
+    units_charged: int | None = None
+    #: Credits left, as the response reported them.
+    credits_remaining: int | None = None
+    #: The response's low-confidence hint, when it has one.
+    hint: str | None = None
+
+
+def passage_metadata(passage: Passage) -> dict[str, str | int | float | bool]:
+    """``passage.metadata()`` plus the :data:`METADATA_ALIASES`."""
+    metadata = passage.metadata()
+    if passage.url:
+        metadata["source"] = passage.url
+    return metadata
+
+
+def passage_to_document(passage: Passage, *, include_citation_in_content: bool = True) -> Document:
+    """One passage as a ``Document``.
+
+    ``page_content`` is :func:`lexapi.passages.format_passage` (the text or
+    notice, then a ``Source:`` line), because LangChain's document prompts
+    show only ``page_content``. With ``include_citation_in_content=False`` it
+    is :meth:`~lexapi.passages.Passage.content` alone.
+    """
+    content = format_passage(passage) if include_citation_in_content else passage.content()
+    return Document(page_content=content, metadata=passage_metadata(passage), id=passage.id)
+
+
+def cut_text(text: str, max_chars: int) -> tuple[str, bool]:
+    """``text`` bounded to ``max_chars`` characters, and whether it was cut.
+
+    A text that fits is returned unchanged. Otherwise leading whitespace is
+    dropped; if the rest fits, it is returned without a note. Else the text
+    is cut at a paragraph break when one falls in the second half of the
+    limit, otherwise at a line break or a space there, otherwise at the
+    limit. "In the second half" means at a position from ``max_chars // 2``
+    to ``max_chars``. It never keeps zero characters. A note follows the cut
+    text; its counts are characters of the original ``text``."""
+    if len(text) <= max_chars:
+        return text, False
+    body = text.lstrip()
+    if len(body) <= max_chars:
+        return body, False
+    # ``body`` starts with a non-space character, so a cut at a separator
+    # after position 0 keeps at least that character.
+    kept = ""
+    for separator in ("\n\n", "\n", " "):
+        # A separator that starts at max_chars still counts: the kept part
+        # (body[:at]) is then exactly max_chars long.
+        at = body.rfind(separator, 0, max_chars + len(separator))
+        if at > 0 and max_chars // 2 <= at <= max_chars:
+            kept = body[:at].rstrip()
+            break
+    if not kept:
+        kept = body[:max_chars].rstrip()
+    return (
+        f"{kept}\n[Text cut by langchain-lexapi: {len(kept)} of {len(text)} characters "
+        "shown. The full text is at the source.]",
+        True,
+    )
+
+
+def truncate_passage(passage: Passage, max_chars: int | None) -> tuple[Passage, bool]:
+    """The passage with its text bounded to ``max_chars``, and whether it
+    was cut.
+
+    Only ``text`` changes; citation, id and metadata stay those of the
+    passage."""
+    if max_chars is None or passage.text is None:
+        return passage, False
+    text, was_cut = cut_text(passage.text, max_chars)
+    if text == passage.text:
+        return passage, False
+    return dataclasses.replace(passage, text=text), was_cut
+
+
+def rank(passage: Passage) -> int:
+    """De-duplication rank: a text from the API (2) over a labelled latest
+    text (1) over a notice or no text (0)."""
+    if passage.text_status == "provided":
+        return 2
+    if passage.text_status == "not_established_for_date":
+        return 1
+    return 0
+
+
+def to_documents(
+    result: PassageResult,
+    *,
+    requested: int | None,
+    include_citation_in_content: bool = True,
+    emit_withheld: bool = True,
+    max_chars: int | None = None,
+    budget: int | None = None,
+) -> tuple[list[Document], RetrievalReport, list[Passage]]:
+    """The documents of one call, in the API's order, its report, and the
+    passages left out by ``budget``.
+
+    De-duplication by passage id: a passage whose id was already seen
+    replaces the earlier one only if it ranks strictly higher (:func:`rank`);
+    otherwise it is left out. The document stays at the position of the
+    first passage with that id.
+
+    ``max_chars`` cuts each text (:func:`cut_text`). ``budget`` bounds the
+    sum of the passages' texts and notices (``Passage.content()``): with a
+    budget only the first passage may be cut (to ``max_chars``); a later
+    passage that does not fit what is left is not returned, and neither is
+    any passage after it. Source lines are not counted."""
+    kept: dict[str, Passage] = {}
+    duplicates = 0
+    not_emitted = 0
+    for passage in result.passages:
+        if passage.text_withheld and not emit_withheld:
+            not_emitted += 1
+            continue
+        earlier = kept.get(passage.id)
+        if earlier is not None:
+            duplicates += 1
+            if rank(passage) <= rank(earlier):
+                continue
+        kept[passage.id] = passage
+    shown: list[Passage] = []
+    omitted: list[Passage] = []
+    truncated = 0
+    used = 0
+    for original in kept.values():
+        if omitted:
+            omitted.append(original)
+            continue
+        if budget is not None and shown:
+            # With a budget, only the first passage may be cut; a later one
+            # is shown whole or not at all, and so is everything after it.
+            passage, was_cut = original, False
+            size = len(passage.content())
+            if used + size > budget:
+                omitted.append(original)
+                continue
+        else:
+            passage, was_cut = truncate_passage(original, max_chars)
+            size = len(passage.content())
+        shown.append(passage)
+        used += size
+        truncated += was_cut
+    documents = [
+        passage_to_document(p, include_citation_in_content=include_citation_in_content)
+        for p in shown
+    ]
+    report = RetrievalReport(
+        requested=requested,
+        returned=len(documents),
+        as_of=result.as_of,
+        withheld=result.withheld,
+        kept_labelled=result.kept_labelled,
+        dropped=result.dropped,
+        uncitable=result.uncitable,
+        filtered_out=result.filtered_out,
+        returned_withheld=sum(p.text_withheld for p in shown),
+        returned_labelled=sum(p.text_status == "not_established_for_date" for p in shown),
+        withheld_not_emitted=not_emitted,
+        duplicates=duplicates,
+        truncated=truncated,
+        not_shown=len(omitted),
+        units_charged=result.units_charged,
+        credits_remaining=result.credits_remaining,
+        hint=result.hint,
+    )
+    return documents, report, omitted

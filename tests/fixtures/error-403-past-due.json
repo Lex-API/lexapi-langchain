@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "code": "PAYMENT_PAST_DUE",
+  "error": "Payment past due",
+  "message": "Your subscription payment failed, so API requests are refused.",
+  "accessEndedAt": "2099-06-25T09:14:03.000Z",
+  "billingUrl": "https://lex-api.com/dashboard#billing"
+}
