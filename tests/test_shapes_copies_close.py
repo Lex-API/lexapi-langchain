@@ -28,7 +28,7 @@ from langchain_lexapi import (
 from langchain_lexapi._documents import cut_text
 from langchain_lexapi.tools import search_description
 
-UNREADABLE = "LexAPI error INVALID_RESPONSE: The answer could not be read."
+UNREADABLE = "LexAPI error INVALID_RESPONSE (HTTP 200): The answer could not be read."
 EMPTY_STRINGS = ("LexAPI returned no text", "LexAPI returned no answer")
 
 # ── 1. malformed document and as-of answers ─────────────────────────────

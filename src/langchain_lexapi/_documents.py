@@ -172,10 +172,11 @@ def to_documents(
     first passage with that id.
 
     ``max_chars`` cuts each text (:func:`cut_text`). ``budget`` bounds the
-    sum of the passages' texts and notices (``Passage.content()``): with a
-    budget only the first passage may be cut (to ``max_chars``); a later
-    passage that does not fit what is left is not returned, and neither is
-    any passage after it. Source lines are not counted."""
+    sum of ``len(Passage.content())`` of the passages shown; the cut note and
+    Source lines are not counted. With a budget, only the first passage may
+    be cut (to ``max_chars``), and when the first passage alone is over the
+    budget nothing else is shown. A later passage that does not fit what is
+    left is not returned, and neither is any passage after it."""
     kept: dict[str, Passage] = {}
     duplicates = 0
     not_emitted = 0
@@ -197,19 +198,24 @@ def to_documents(
         if omitted:
             omitted.append(original)
             continue
-        if budget is not None and shown:
-            # With a budget, only the first passage may be cut; a later one
-            # is shown whole or not at all, and so is everything after it.
+        if budget is None:
+            passage, was_cut = truncate_passage(original, max_chars)
+        elif not shown:
+            # The first passage is always shown, cut to max_chars if need
+            # be. If it alone is over the budget, nothing else is shown.
+            passage, was_cut = truncate_passage(original, max_chars)
+            size = len(original.content())
+            used = size if size <= budget else budget + 1
+        else:
+            # A later passage is shown whole or not at all, and once one
+            # does not fit, neither is anything after it.
             passage, was_cut = original, False
-            size = len(passage.content())
+            size = len(original.content())
             if used + size > budget:
                 omitted.append(original)
                 continue
-        else:
-            passage, was_cut = truncate_passage(original, max_chars)
-            size = len(passage.content())
+            used += size
         shown.append(passage)
-        used += size
         truncated += was_cut
     documents = [
         passage_to_document(p, include_citation_in_content=include_citation_in_content)

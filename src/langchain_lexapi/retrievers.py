@@ -55,6 +55,11 @@ def _date_argument(value: Any) -> datetime.date | None:
     raise InvalidArgumentError(f"as_of must be a date in the form YYYY-MM-DD; got {value!r}")
 
 
+def _check_query(query: str) -> None:
+    if not isinstance(query, str) or not query.strip():
+        raise InvalidArgumentError("query must not be empty")
+
+
 def _iso(value: datetime.date | None) -> str | None:
     if isinstance(value, datetime.datetime):
         return value.date().isoformat()
@@ -142,6 +147,7 @@ class _LexAPIRetriever(LexAPIClientFields, BaseRetriever):
     def _get_relevant_documents(
         self, query: str, *, run_manager: CallbackManagerForRetrieverRun, **kwargs: Any
     ) -> list[Document]:
+        _check_query(query)
         options = self._check_overrides(kwargs)
         try:
             result = self._call(query, options)
@@ -154,6 +160,7 @@ class _LexAPIRetriever(LexAPIClientFields, BaseRetriever):
     async def _aget_relevant_documents(
         self, query: str, *, run_manager: AsyncCallbackManagerForRetrieverRun, **kwargs: Any
     ) -> list[Document]:
+        _check_query(query)
         options = self._check_overrides(kwargs)
         try:
             if self._async_client() is not None:

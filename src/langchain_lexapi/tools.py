@@ -89,9 +89,21 @@ def tool_error(error: LexAPIError) -> ToolException:
     return ToolException(_KEY_PATTERN.sub("lex_***", "".join(parts)))
 
 
+def _check_celex(celex: str) -> None:
+    if not isinstance(celex, str) or not celex.strip():
+        raise InvalidArgumentError("celex must not be empty")
+
+
+def _check_optional(name: str, value: str | None) -> None:
+    """An optional argument may be absent (``None``) but not blank."""
+    if value is not None and not value.strip():
+        raise InvalidArgumentError(f"{name} must not be empty")
+
+
 def _unreadable_answer() -> InvalidResponseError:
-    """For a 2xx answer that parsed but lacks what its schema requires. The
-    status is not known at this point, so the fixed text names none."""
+    """For a 2xx answer that LexAPI's client accepted but that fails one of
+    this package's additional checks. The status is not known at this
+    point, so the fixed text names none."""
     return InvalidResponseError("The answer does not have the documented shape.")
 
 
@@ -103,7 +115,9 @@ def _document_answer_readable(response: DocumentResponse) -> bool:
     """A document read must carry a ``document`` object with a non-empty
     ``celex`` string; its ``content``, when present and not null, an object;
     ``content.fullText``, when present, a string; and ``content.articles``,
-    when present, a list of objects."""
+    when present, a list of objects. LexAPI's client checks the documented
+    fields itself; these checks are additional (it accepts ``document: {}``,
+    for example)."""
     document = response.get("document")
     if not isinstance(document, dict):
         return False
@@ -123,8 +137,10 @@ def _document_answer_readable(response: DocumentResponse) -> bool:
 
 
 def _as_of_answer_readable(response: LegislationAsOfResponse) -> bool:
-    """An as-of answer must name its document (a CELEX string) and say
-    whether it is resolved (a boolean), as its schema requires."""
+    """An as-of answer must name its document (a non-blank CELEX string)
+    and say whether it is resolved (a boolean). LexAPI's client checks the
+    documented fields itself; these checks are additional (it accepts a
+    whitespace-only ``document``, for example)."""
     document = response.get("document")
     return (
         isinstance(document, str)
@@ -369,7 +385,7 @@ class LexAPISearchLegislationTool(_LexAPITool):
         overrides = {"as_of": as_of} if as_of is not None else {}
         failure: Exception | None = None
         try:
-            self._check_open()
+            self._sync_client()  # names this tool when only an async client was given
             documents, report = self._retriever(self._async).invoke_with_report(
                 query, config, **overrides
             )
@@ -434,7 +450,8 @@ class LexAPIReadDocumentTool(_LexAPITool):
     instead, so the model can ask for one. Only the first article is cut,
     when it alone is longer than ``max_chars``: at a paragraph break when one
     falls in the second half of the limit, otherwise at a line break or a
-    space there, otherwise at the limit, with a note. The numbering, the cut
+    space there, otherwise at the limit, with a note; nothing else is then
+    shown. The numbering, the cut
     note, the ``Source:`` lines and the list of articles not shown come on
     top of the bound. The description states the budget; ``max_chars`` is
     frozen so the description stays true.
@@ -499,6 +516,8 @@ class LexAPIReadDocumentTool(_LexAPITool):
     ) -> tuple[str, Artifact]:
         failure: Exception | None = None
         try:
+            _check_celex(celex)
+            _check_optional("article", article)
             response = self._sync_client().get_document(celex, **self._request(article, language))
         except _TOOL_ERRORS as error:
             failure = error
@@ -529,6 +548,8 @@ class LexAPIReadDocumentTool(_LexAPITool):
             return fallback
         failure = None
         try:
+            _check_celex(celex)
+            _check_optional("article", article)
             response = await client.get_document(celex, **self._request(article, language))
         except _TOOL_ERRORS as error:
             failure = error
@@ -620,6 +641,8 @@ class LexAPILegislationAsOfTool(_LexAPITool):
     ) -> tuple[str, Artifact]:
         failure: Exception | None = None
         try:
+            _check_celex(celex)
+            _check_optional("provision", provision)
             request = self._request(as_of, provision, language)
             response = self._sync_client().legislation_as_of(celex, **request)
         except _TOOL_ERRORS as error:
@@ -640,6 +663,8 @@ class LexAPILegislationAsOfTool(_LexAPITool):
     ) -> tuple[str, Artifact]:
         failure: Exception | None = None
         try:
+            _check_celex(celex)
+            _check_optional("provision", provision)
             request = self._request(as_of, provision, language)
             client = self._async_client()
         except _TOOL_ERRORS as error:
