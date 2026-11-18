@@ -4,13 +4,15 @@ LangChain retrievers and tools for EU law from [LexAPI](https://lex-api.com): EU
 article by article, CJEU case law, and the text of an act for a date, each with its CELEX
 citation.
 
-- `LexAPILegislationRetriever`: semantic search over EU legislation, optionally for a date (`as_of`).
+- `LexAPILegislationRetriever`: semantic search over EU legislation, optionally for a date
+  (`as_of`).
 - `LexAPICaseLawRetriever`: semantic search over CJEU case law.
 - Tools: `lexapi_search_legislation`, `lexapi_read_document` (a document or one article) and
   `lexapi_legislation_as_of` (the version of an act listed for a date, and one provision of it).
 
 Documents and tool outputs are built by the SDK's `lexapi.passages` module, so this package
-applies the same citation and date rules as the [Python SDK](https://github.com/Lex-API/lexapi-python).
+applies the same citation and date rules as the
+[Python SDK](https://github.com/Lex-API/lexapi-python).
 
 ## Install
 
@@ -40,7 +42,10 @@ for doc in docs:
     print(doc.metadata.get("cite_celex"), doc.metadata["text_withheld"])
 ```
 
-Case law. A hit's text is the whole decision; `max_chars` bounds it: the text is cut at a paragraph break when one falls in the second half of the limit, otherwise at a line break or a space there, otherwise at the limit, and a note says so. The note and the `Source:` line come on top of the bound:
+Case law. A hit's text is the whole decision; `max_chars` bounds it: the text is cut at a paragraph
+break when one falls in the second half of the limit, otherwise at a line break or a space there,
+otherwise at the limit, and a note says so. The note and the `Source:` line come on top of the
+bound:
 
 ```python
 from langchain_lexapi import LexAPICaseLawRetriever
@@ -74,9 +79,13 @@ print(message.content)
 print(message.artifact["report"]["units_charged"])
 ```
 
-`lexapi_read_document` returns at most `max_chars` (default 20,000) characters of text per call:
-whole articles, a single longer text cut at a paragraph break when one falls in the second half of the limit, otherwise at a line break or a space there, otherwise at the limit, then a list of the articles not shown so the model can ask for one.
-The numbering, the cut note, the `Source:` lines and that list come on top of the bound. The tool's report counts `truncated` (texts cut) and `not_shown`.
+`lexapi_read_document` returns at most `max_chars` (default 20,000) characters of text per call, in
+whole articles: once an article does not fit what is left, it and every later article are listed by
+reference instead, so the model can ask for one. Only the first article is cut, when it alone is
+longer than `max_chars`: at a paragraph break when one falls in the second half of the limit,
+otherwise at a line break or a space there, otherwise at the limit. The numbering, the cut note, the
+`Source:` lines and that list come on top of the bound. The tool's report counts `truncated` (texts
+cut) and `not_shown`. The tool's description states the budget.
 
 Pass your own SDK clients with `client=` (a `lexapi.LexAPI`) and `async_client=` (a
 `lexapi.AsyncLexAPI`) to control timeouts, retries and their lifetime: this package never closes a
@@ -86,6 +95,10 @@ use. Close those with `close()` (sync client) or `aclose()` (both), or use the o
 manager (`with` / `async with`). With only `client=`, async calls run the sync client in an
 executor; with only `async_client=`, sync calls are refused. Unknown constructor arguments raise a
 validation error.
+
+A `model_copy` (or `copy.copy`) shares the clients of the object it was copied from but never closes
+them, and cannot change the connection settings; a deep copy or pickle is refused, since the object
+holds an open client.
 
 ## What a document holds
 
@@ -171,16 +184,17 @@ above the relevance floor, a `celex` restriction that matched nothing, hits left
   retries), `lexapi.AuthenticationError` (401), and the rest of `lexapi.LexAPIError`.
 - Tools raise `langchain_core.tools.ToolException` with the API's error code and message, for
   example `LexAPI error RATE_LIMITED (HTTP 429): Rate limit exceeded. Retry after 7 s.`, with
-  anything shaped like an API key masked. An answer that could not be read gives
-  `LexAPI error INVALID_RESPONSE (HTTP 200): The answer could not be read.` and quotes nothing from
-  it; a document read or as-of answer that parsed but lacks its documented shape (no `document`,
-  say) gives the same text without the status, `LexAPI error INVALID_RESPONSE: The answer could not
-  be read.`, never a "no text" answer. An argument that matches the tool's schema but is an impossible date (`2099-02-30`) gives
-  `Invalid argument: ...` before any request; an argument that does not match the tool's schema
-  (`as_of="1 June 2099"`) raises the framework's validation error. Use after `close()` /
-  `aclose()` gives `<Class> is closed; create a new one.` A configuration error (such as a tool given only an `async_client` and called
-  synchronously) is raised as itself. Set `handle_tool_error=True` on a tool
-  to hand that message to the model instead of raising.
+  anything shaped like an API key masked. An answer that could not be read gives `LexAPI error
+  INVALID_RESPONSE (HTTP 200): The answer could not be read.` and quotes nothing from it; a document
+  read or as-of answer that parsed but lacks its documented shape (no `document`, or a document
+  without a `celex`, say) gives the same text without the status, `LexAPI error INVALID_RESPONSE:
+  The answer could not be read.`, never a "no text" answer. An argument that matches the tool's
+  schema but is an impossible date (`2099-02-30`) gives `Invalid argument: ...` before any request;
+  an argument that does not match the tool's schema (`as_of="1 June 2099"`) raises the framework's
+  validation error. Use after `close()` / `aclose()` gives `<Class> is closed; create a new one.` A
+  configuration error (such as a tool given only an `async_client` and called synchronously) is
+  raised as itself. Set `handle_tool_error=True` on a tool to hand that message to the model instead
+  of raising.
 
 The API key is never logged, never in `repr()` and never serialised.
 

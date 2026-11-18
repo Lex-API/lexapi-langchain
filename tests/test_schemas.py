@@ -28,6 +28,8 @@ CONFIGS: list[tuple[type[BaseTool], dict[str, Any]]] = [
     (LexAPISearchLegislationTool, {"unresolved": "drop"}),
     (LexAPISearchLegislationTool, {"unresolved": "keep_labelled"}),
     (LexAPIReadDocumentTool, {}),
+    (LexAPIReadDocumentTool, {"max_chars": 5000}),
+    (LexAPIReadDocumentTool, {"max_chars": None}),
     (LexAPILegislationAsOfTool, {}),
 ]
 

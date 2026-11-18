@@ -31,6 +31,12 @@ All notable changes to this project are documented here. The format follows
   clients passed together with `api_key` / `base_url`. Use after `close()` / `aclose()` raises.
 - An answer that could not be read gives tools a fixed error text that quotes nothing from it,
   including a document read or as-of answer that parsed but lacks its documented shape.
+- The read tool needs a document with a `celex` string and a string `fullText` when present.
+- The read tool's budget is whole articles; only the first may be cut. Its description states the
+  budget, and `max_chars` is frozen.
+- `as_of` with a time part and `k` given as a string, float or boolean are refused.
+- Copies cannot change connection settings; deep copies and pickles are refused. A call that
+  races `close()` raises `ClientClosedError`.
 - `ClientClosedError` is exported. A `model_copy` shares its source's clients and never closes
   them; it raises `ClientClosedError` once the source has closed the clients it built.
 - The search tool's description follows its `unresolved` policy, which is frozen; `model_copy`

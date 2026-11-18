@@ -9,6 +9,7 @@ into an empty list.
 from __future__ import annotations
 
 import datetime
+import re
 from typing import Any, ClassVar
 
 from langchain_core.callbacks import (
@@ -23,7 +24,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import run_in_executor
 from lexapi import passages
 from lexapi.passages import PassageResult, UnresolvedPolicy
-from pydantic import ConfigDict, Field, TypeAdapter, ValidationError, field_validator
+from pydantic import ConfigDict, Field, field_validator
 
 from langchain_lexapi._clients import LexAPIClientFields
 from langchain_lexapi._documents import REPORT_EVENT, RetrievalReport, to_documents
@@ -31,7 +32,7 @@ from langchain_lexapi._report import caught, config_with_catcher
 
 __all__ = ["LexAPICaseLawRetriever", "LexAPILegislationRetriever"]
 
-_DATE = TypeAdapter(datetime.date | None)
+_DATE_TEXT = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class InvalidArgumentError(ValueError):
@@ -40,12 +41,18 @@ class InvalidArgumentError(ValueError):
 
 
 def _date_argument(value: Any) -> datetime.date | None:
-    try:
-        return _DATE.validate_python(value)
-    except ValidationError:
-        raise InvalidArgumentError(
-            f"as_of must be a date in the form YYYY-MM-DD; got {value!r}"
-        ) from None
+    """A ``datetime.date`` (not a ``datetime``), a ``YYYY-MM-DD`` string, or
+    ``None``. Anything else, including a time part, is refused."""
+    if value is None:
+        return None
+    if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
+        return value
+    if isinstance(value, str) and _DATE_TEXT.match(value):
+        try:
+            return datetime.date.fromisoformat(value)
+        except ValueError:
+            pass
+    raise InvalidArgumentError(f"as_of must be a date in the form YYYY-MM-DD; got {value!r}")
 
 
 def _iso(value: datetime.date | None) -> str | None:
@@ -136,7 +143,10 @@ class _LexAPIRetriever(LexAPIClientFields, BaseRetriever):
         self, query: str, *, run_manager: CallbackManagerForRetrieverRun, **kwargs: Any
     ) -> list[Document]:
         options = self._check_overrides(kwargs)
-        result = self._call(query, options)
+        try:
+            result = self._call(query, options)
+        except RuntimeError as error:
+            raise self._closed_race(error) from None
         documents, report = self._convert(result, options)
         _run_handlers(run_manager).on_custom_event(REPORT_EVENT, report, run_id=run_manager.run_id)
         return documents
@@ -145,10 +155,13 @@ class _LexAPIRetriever(LexAPIClientFields, BaseRetriever):
         self, query: str, *, run_manager: AsyncCallbackManagerForRetrieverRun, **kwargs: Any
     ) -> list[Document]:
         options = self._check_overrides(kwargs)
-        if self._async_client() is not None:
-            result = await self._acall(query, options)
-        else:
-            result = await run_in_executor(None, self._call, query, options)
+        try:
+            if self._async_client() is not None:
+                result = await self._acall(query, options)
+            else:
+                result = await run_in_executor(None, self._call, query, options)
+        except RuntimeError as error:
+            raise self._closed_race(error) from None
         documents, report = self._convert(result, options)
         await _async_run_handlers(run_manager).on_custom_event(
             REPORT_EVENT, report, run_id=run_manager.run_id
@@ -203,9 +216,15 @@ class LexAPILegislationRetriever(_LexAPIRetriever):
     _overrides: ClassVar[frozenset[str]] = frozenset({"k", "as_of"})
 
     #: Hits to ask for (the API's ``limit``); plans can cap it lower.
-    k: int = Field(default=5, ge=1, le=50)
+    k: int = Field(default=5, ge=1, le=50, strict=True)
     #: Ask for the text for this date (``YYYY-MM-DD`` or a ``datetime.date``).
     as_of: datetime.date | None = None
+
+    @field_validator("as_of", mode="before")
+    @classmethod
+    def _as_of_is_a_date(cls, value: Any) -> datetime.date | None:
+        return _date_argument(value)
+
     #: Language of the texts (ISO 639-1); ``None`` is the API's default.
     language: str | None = None
     #: Similarity floor; ``None`` is the API's default floor.
@@ -289,7 +308,7 @@ class LexAPICaseLawRetriever(_LexAPIRetriever):
     _max_k: ClassVar[int] = 100
 
     #: Hits to ask for (the API's ``limit``); plans can cap it lower.
-    k: int = Field(default=5, ge=1, le=100)
+    k: int = Field(default=5, ge=1, le=100, strict=True)
     #: Language of the texts (ISO 639-1); ``None`` is the API's default.
     language: str | None = None
     #: Similarity floor; ``None`` is the API's default floor.
@@ -300,8 +319,10 @@ class LexAPICaseLawRetriever(_LexAPIRetriever):
     date_from: datetime.date | None = None
     #: Only decisions on or before this date (``filters.date_to``).
     date_to: datetime.date | None = None
-    #: Cut each text to at most this many characters (see ``cut_text``) and
-    #: say so in the text. ``None`` (the default) passes whole texts.
+    #: Bound each text to this many characters: cut at a paragraph break
+    #: when one falls in the second half of the limit, otherwise at a line
+    #: break or a space there, otherwise at the limit, with a note saying so.
+    #: ``None`` (the default) passes whole texts.
     max_chars: int | None = Field(default=None, ge=200)
 
     def _request(self, options: dict[str, Any]) -> dict[str, Any]:

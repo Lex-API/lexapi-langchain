@@ -7,7 +7,7 @@ model, built by :mod:`lexapi.passages` (texts or notices, each with a
 the call's :class:`~langchain_lexapi.RetrievalReport` as plain dicts. An API
 error is raised as :class:`~langchain_core.tools.ToolException` carrying the
 API's error code and message; an answer that could not be read gets a fixed
-message that quotes nothing from it.
+message.
 """
 
 from __future__ import annotations
@@ -67,8 +67,8 @@ def tool_error(error: LexAPIError) -> ToolException:
     shaped like an API key is masked.
 
     An answer that could not be read (``InvalidResponseError``, or any error
-    on a 2xx status) gets a fixed message: the SDK's message for it can
-    quote the body, which can hold text that must not be passed on."""
+    on a 2xx status) gets a fixed message, so what the model reads does not
+    depend on the SDK's message for it."""
     status = error.status
     if _unreadable(error):
         where = f" (HTTP {status})" if status is not None else ""
@@ -100,16 +100,23 @@ def _is_object_list(value: object) -> bool:
 
 
 def _document_answer_readable(response: DocumentResponse) -> bool:
-    """A document read must carry a ``document`` object; its ``content``,
-    when present and not null, an object; and ``content.articles``, when
-    present, a list of objects."""
+    """A document read must carry a ``document`` object with a non-empty
+    ``celex`` string; its ``content``, when present and not null, an object;
+    ``content.fullText``, when present, a string; and ``content.articles``,
+    when present, a list of objects."""
     document = response.get("document")
     if not isinstance(document, dict):
+        return False
+    celex = document.get("celex")
+    if not isinstance(celex, str) or not celex.strip():
         return False
     content = document.get("content")
     if content is None:
         return True
     if not isinstance(content, dict):
+        return False
+    full_text = content.get("fullText")
+    if full_text is not None and not isinstance(full_text, str):
         return False
     articles = content.get("articles")
     return articles is None or _is_object_list(articles)
@@ -127,17 +134,20 @@ def _as_of_answer_readable(response: LegislationAsOfResponse) -> bool:
 
 
 def _cause(error: Exception) -> Exception | None:
-    """The exception to chain: none for an answer that could not be read,
-    whose SDK message can quote the body."""
+    """The exception to chain: none for an answer that could not be read, so
+    the tool's error carries only its fixed message."""
     if isinstance(error, LexAPIError) and _unreadable(error):
         return None
     return error
 
 
 def _fail(error: Exception) -> NoReturn:
-    """Raise the tool's ``ToolException`` for ``error``. Called outside the
-    ``except`` block, so an unreadable answer's SDK error is neither the
-    cause nor the context of what is raised."""
+    """Raise the tool's ``ToolException`` for ``error``; any other error is
+    raised as itself. Called outside the ``except`` block, so an unreadable
+    answer's SDK error is neither the cause nor the context of what is
+    raised."""
+    if not isinstance(error, _TOOL_ERRORS):
+        raise error  # not a tool error (a RuntimeError that did not race close)
     failure = _raise_for(error)
     cause = _cause(error)
     if cause is None:
@@ -185,6 +195,29 @@ def search_description(unresolved: UnresolvedPolicy) -> str:
 _GENERATED_DESCRIPTIONS = frozenset(search_description(p) for p in _SEARCH_DATE)  # type: ignore[arg-type]
 
 
+_READ_BASE = (
+    "Read an EU document by its CELEX number: one article (article argument), or its articles "
+    "in order. Each passage is followed by a Source line with its CELEX citation. Consolidated "
+    "texts (CELEX starting with 0) have no legal force: cite the act as published in the "
+    "Official Journal."
+)
+_READ_BUDGET = re.compile(
+    re.escape(_READ_BASE)
+    + r" The output is limited by a character budget of \d+ characters of text; the articles "
+    r"not shown are listed by reference\."
+)
+
+
+def read_description(max_chars: int | None) -> str:
+    """The description of ``lexapi_read_document`` for a budget."""
+    if max_chars is None:
+        return _READ_BASE
+    return (
+        f"{_READ_BASE} The output is limited by a character budget of {max_chars} characters "
+        "of text; the articles not shown are listed by reference."
+    )
+
+
 def _artifact(documents: list[Document], report: RetrievalReport) -> Artifact:
     return {
         "passages": [dict(document.metadata) for document in documents],
@@ -208,6 +241,45 @@ class _LexAPITool(LexAPIClientFields, BaseTool):
         if value != "content_and_artifact":
             raise ValueError("response_format must be 'content_and_artifact'")
         return value
+
+    # A tool whose description follows its settings returns it here; the
+    # settings it follows are frozen, and a copy regenerates it.
+    def _description_text(self) -> str | None:
+        return None
+
+    @classmethod
+    def _is_generated_text(cls, text: str) -> bool:
+        return False
+
+    def _generated_description(self) -> bool:
+        return "description" not in self.model_fields_set or self._is_generated_text(
+            self.description
+        )
+
+    def _set_generated_description(self) -> None:
+        text = self._description_text()
+        if text is not None:
+            self.description = text
+            self.__pydantic_fields_set__.discard("description")
+
+    @model_validator(mode="after")
+    def _describe(self) -> Self:
+        if self._description_text() is not None and self._generated_description():
+            self._set_generated_description()
+        return self
+
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
+        """A copy (see :meth:`LexAPIClientFields.__copy__`); a generated
+        description is regenerated for the copy's settings."""
+        update = dict(update or {})
+        if "description" in update:
+            generated = self._is_generated_text(update["description"])
+        else:
+            generated = self._generated_description()
+        copy = super().model_copy(update=update, deep=deep)
+        if generated:
+            copy._set_generated_description()
+        return copy
 
 
 # ── search ──────────────────────────────────────────────────────────────
@@ -249,7 +321,7 @@ class LexAPISearchLegislationTool(_LexAPITool):
     args_schema: type[BaseModel] = SearchLegislationInput
 
     #: Hits to ask for per search.
-    k: int = Field(default=5, ge=1, le=50)
+    k: int = Field(default=5, ge=1, le=50, strict=True)
     #: Language of the texts (ISO 639-1); ``None`` is the API's default.
     language: str | None = None
     #: Similarity floor; ``None`` is the API's default floor.
@@ -258,34 +330,12 @@ class LexAPISearchLegislationTool(_LexAPITool):
     #: description cannot go stale.
     unresolved: UnresolvedPolicy = Field(default="withhold", frozen=True)
 
-    def _generated_description(self) -> bool:
-        return (
-            "description" not in self.model_fields_set
-            or self.description in _GENERATED_DESCRIPTIONS
-        )
+    def _description_text(self) -> str | None:
+        return search_description(self.unresolved)
 
-    def _set_generated_description(self) -> None:
-        self.description = search_description(self.unresolved)
-        self.__pydantic_fields_set__.discard("description")
-
-    @model_validator(mode="after")
-    def _describe(self) -> Self:
-        if self._generated_description():
-            self._set_generated_description()
-        return self
-
-    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
-        """A copy; a generated description is regenerated for the copy's
-        ``unresolved``."""
-        update = dict(update or {})
-        if "description" in update:
-            generated = update["description"] in _GENERATED_DESCRIPTIONS
-        else:
-            generated = self._generated_description()
-        copy = super().model_copy(update=update, deep=deep)
-        if generated:
-            copy._set_generated_description()
-        return copy
+    @classmethod
+    def _is_generated_text(cls, text: str) -> bool:
+        return text in _GENERATED_DESCRIPTIONS
 
     def _retriever(self, async_client: AsyncLexAPI | None) -> LexAPILegislationRetriever:
         return LexAPILegislationRetriever(
@@ -325,6 +375,8 @@ class LexAPISearchLegislationTool(_LexAPITool):
             )
         except _TOOL_ERRORS as error:
             failure = error
+        except RuntimeError as error:
+            failure = self._closed_race(error)
         if failure is not None:
             _fail(failure)
         return self._content(documents, report), _artifact(documents, report)
@@ -344,6 +396,8 @@ class LexAPISearchLegislationTool(_LexAPITool):
             )
         except _TOOL_ERRORS as error:
             failure = error
+        except RuntimeError as error:
+            failure = self._closed_race(error)
         if failure is not None:
             _fail(failure)
         return self._content(documents, report), _artifact(documents, report)
@@ -375,30 +429,38 @@ class LexAPIReadDocumentTool(_LexAPITool):
     the start.
 
     ``max_chars`` bounds the text: the sum of the articles' texts (and
-    notices) in one output. Without ``article`` the output holds whole
-    articles up to that bound and then lists the articles not shown, so the
-    model can ask for one. A single text longer than ``max_chars`` is cut at
-    a paragraph break when one falls in the second half of the limit,
-    otherwise at a line break or a space there, otherwise at the limit, with
-    a note. The numbering, the cut note, the ``Source:``
-    lines and the list of articles not shown come on top of the bound.
+    notices) in one output, in whole articles. Once an article does not fit
+    what is left, it and every later article are listed by reference
+    instead, so the model can ask for one. Only the first article is cut,
+    when it alone is longer than ``max_chars``: at a paragraph break when one
+    falls in the second half of the limit, otherwise at a line break or a
+    space there, otherwise at the limit, with a note. The numbering, the cut
+    note, the ``Source:`` lines and the list of articles not shown come on
+    top of the bound. The description states the budget; ``max_chars`` is
+    frozen so the description stays true.
     Annexes and recitals are not included. Cost: 5 credits, settled at 1
     when LexAPI already holds the document and 4 when it is read from the
     Publications Office.
     """
 
     name: str = "lexapi_read_document"
-    description: str = (
-        "Read an EU document by CELEX number: one article (article=art_17) or the "
-        "document's articles from the start. Each text is followed by a Source line with "
-        "its CELEX citation. Consolidated texts (CELEX starting with 0) have no legal "
-        "force: cite the act as published in the Official Journal."
-    )
+    #: Built from ``max_chars`` unless another text is given; see
+    #: :func:`read_description`.
+    description: str = ""
     args_schema: type[BaseModel] = ReadDocumentInput
 
     #: Most characters of text (articles' texts and notices, without Source
-    #: lines) to return per call; ``None`` returns all.
-    max_chars: int | None = Field(default=20_000, ge=200)
+    #: lines) to return per call; ``None`` returns all. Frozen, so the
+    #: description cannot go stale.
+    max_chars: int | None = Field(default=20_000, ge=200, frozen=True)
+
+    def _description_text(self) -> str | None:
+        return read_description(self.max_chars)
+
+    @classmethod
+    def _is_generated_text(cls, text: str) -> bool:
+        return text == _READ_BASE or _READ_BUDGET.fullmatch(text) is not None
+
     #: Language used when a call does not name one (ISO 639-1); ``None`` is
     #: the API's default.
     language: str | None = None
@@ -440,6 +502,8 @@ class LexAPIReadDocumentTool(_LexAPITool):
             response = self._sync_client().get_document(celex, **self._request(article, language))
         except _TOOL_ERRORS as error:
             failure = error
+        except RuntimeError as error:
+            failure = self._closed_race(error)
         if failure is not None:
             _fail(failure)
         return self._render(response, celex, article)
@@ -468,6 +532,8 @@ class LexAPIReadDocumentTool(_LexAPITool):
             response = await client.get_document(celex, **self._request(article, language))
         except _TOOL_ERRORS as error:
             failure = error
+        except RuntimeError as error:
+            failure = self._closed_race(error)
         if failure is not None:
             _fail(failure)
         return self._render(response, celex, article)
@@ -558,6 +624,8 @@ class LexAPILegislationAsOfTool(_LexAPITool):
             response = self._sync_client().legislation_as_of(celex, **request)
         except _TOOL_ERRORS as error:
             failure = error
+        except RuntimeError as error:
+            failure = self._closed_race(error)
         if failure is not None:
             _fail(failure)
         return self._render(response, celex, provision)
@@ -576,6 +644,8 @@ class LexAPILegislationAsOfTool(_LexAPITool):
             client = self._async_client()
         except _TOOL_ERRORS as error:
             failure = error
+        except RuntimeError as error:
+            failure = self._closed_race(error)
         if failure is not None:
             _fail(failure)
         if client is None:
@@ -588,6 +658,8 @@ class LexAPILegislationAsOfTool(_LexAPITool):
             response = await client.legislation_as_of(celex, **request)
         except _TOOL_ERRORS as error:
             failure = error
+        except RuntimeError as error:
+            failure = self._closed_race(error)
         if failure is not None:
             _fail(failure)
         return self._render(response, celex, provision)

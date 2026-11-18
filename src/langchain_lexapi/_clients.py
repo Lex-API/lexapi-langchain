@@ -35,6 +35,9 @@ class _BuiltClients:
         self.closed = False
 
 
+_CONNECTION_FIELDS = frozenset({"client", "async_client", "api_key", "base_url"})
+
+
 class LexAPIClientFields(BaseModel):
     """Connection settings.
 
@@ -91,19 +94,54 @@ class LexAPIClientFields(BaseModel):
         return kwargs
 
     def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
+        """A shallow copy that shares this object's clients (see
+        :meth:`__copy__`). Connection settings cannot be changed in a copy,
+        and a deep copy is refused."""
+        changed = sorted(set(update or {}) & _CONNECTION_FIELDS)
+        if changed:
+            raise ValueError(
+                "Connection settings cannot be changed in a copy; "
+                f"create a new {type(self).__name__}."
+            )
+        return super().model_copy(update=update, deep=deep)
+
+    def __copy__(self) -> Self:
         """A copy that shares this object's clients. The copy never closes
         them; once the object that built them closes them, the copy raises
         :class:`ClientClosedError`."""
-        copy = super().model_copy(update=update, deep=deep)
+        copy = super().__copy__()
         copy._sync, copy._async = self._sync, self._async
         copy._built = self._built
         copy._owns_clients = False
         copy._closed = False
         return copy
 
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Self:
+        raise TypeError(self._no_deep_copy())
+
+    def __getstate__(self) -> dict[Any, Any]:
+        raise TypeError(self._no_deep_copy())
+
+    def _no_deep_copy(self) -> str:
+        return f"{type(self).__name__} holds an open client and cannot be deep-copied or pickled."
+
+    def _is_closed(self) -> bool:
+        return self._closed or self._built.closed
+
+    def _closed_error(self) -> ClientClosedError:
+        return ClientClosedError(f"{type(self).__name__} is closed; create a new one.")
+
+    def _closed_race(self, error: RuntimeError) -> Exception:
+        """The error to raise for a ``RuntimeError`` from a call: a call that
+        raced ``close()`` and hit httpx's closed client becomes
+        :class:`ClientClosedError`; anything else stays as it is."""
+        if self._is_closed() and "client has been closed" in str(error):
+            return self._closed_error()
+        return error
+
     def _check_open(self) -> None:
-        if self._closed or self._built.closed:
-            raise ClientClosedError(f"{type(self).__name__} is closed; create a new one.")
+        if self._is_closed():
+            raise self._closed_error()
 
     def _sync_client(self) -> LexAPI:
         self._check_open()

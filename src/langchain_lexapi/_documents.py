@@ -115,8 +115,10 @@ def cut_text(text: str, max_chars: int) -> tuple[str, bool]:
     # after position 0 keeps at least that character.
     kept = ""
     for separator in ("\n\n", "\n", " "):
-        at = body.rfind(separator, 0, max_chars + 1)
-        if at > 0 and at >= max_chars // 2:
+        # A separator that starts at max_chars still counts: the kept part
+        # (body[:at]) is then exactly max_chars long.
+        at = body.rfind(separator, 0, max_chars + len(separator))
+        if at > 0 and max_chars // 2 <= at <= max_chars:
             kept = body[:at].rstrip()
             break
     if not kept:
@@ -170,9 +172,10 @@ def to_documents(
     first passage with that id.
 
     ``max_chars`` cuts each text (:func:`cut_text`). ``budget`` bounds the
-    sum of the passages' texts and notices (``Passage.content()``, after the
-    cut): passages after the first that would go over it are not returned.
-    Source lines are not counted."""
+    sum of the passages' texts and notices (``Passage.content()``): with a
+    budget only the first passage may be cut (to ``max_chars``); a later
+    passage that does not fit what is left is not returned, and neither is
+    any passage after it. Source lines are not counted."""
     kept: dict[str, Passage] = {}
     duplicates = 0
     not_emitted = 0
@@ -191,11 +194,20 @@ def to_documents(
     truncated = 0
     used = 0
     for original in kept.values():
-        passage, was_cut = truncate_passage(original, max_chars)
-        size = len(passage.content())
-        if omitted or (budget is not None and shown and used + size > budget):
+        if omitted:
             omitted.append(original)
             continue
+        if budget is not None and shown:
+            # With a budget, only the first passage may be cut; a later one
+            # is shown whole or not at all, and so is everything after it.
+            passage, was_cut = original, False
+            size = len(passage.content())
+            if used + size > budget:
+                omitted.append(original)
+                continue
+        else:
+            passage, was_cut = truncate_passage(original, max_chars)
+            size = len(passage.content())
         shown.append(passage)
         used += size
         truncated += was_cut

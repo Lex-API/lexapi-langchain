@@ -130,13 +130,121 @@
       "class": "LexAPIReadDocumentTool"
     },
     "name": "lexapi_read_document",
-    "description": "Read an EU document by CELEX number: one article (article=art_17) or the document's articles from the start. Each text is followed by a Source line with its CELEX citation. Consolidated texts (CELEX starting with 0) have no legal force: cite the act as published in the Official Journal.",
+    "description": "Read an EU document by its CELEX number: one article (article argument), or its articles in order. Each passage is followed by a Source line with its CELEX citation. Consolidated texts (CELEX starting with 0) have no legal force: cite the act as published in the Official Journal. The output is limited by a character budget of 20000 characters of text; the articles not shown are listed by reference.",
     "response_format": "content_and_artifact",
     "openai": {
       "type": "function",
       "function": {
         "name": "lexapi_read_document",
-        "description": "Read an EU document by CELEX number: one article (article=art_17) or the document's articles from the start. Each text is followed by a Source line with its CELEX citation. Consolidated texts (CELEX starting with 0) have no legal force: cite the act as published in the Official Journal.",
+        "description": "Read an EU document by its CELEX number: one article (article argument), or its articles in order. Each passage is followed by a Source line with its CELEX citation. Consolidated texts (CELEX starting with 0) have no legal force: cite the act as published in the Official Journal. The output is limited by a character budget of 20000 characters of text; the articles not shown are listed by reference.",
+        "parameters": {
+          "properties": {
+            "celex": {
+              "description": "CELEX number of the document, for example 32016R0679.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "article": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional article to read: art_17, 17 or 'Article 17'. Leave it out to read the document's articles from the start."
+            },
+            "language": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z]{2}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional language of the text (ISO 639-1, for example en)."
+            }
+          },
+          "required": [
+            "celex"
+          ],
+          "type": "object"
+        }
+      }
+    }
+  },
+  {
+    "config": {
+      "class": "LexAPIReadDocumentTool",
+      "max_chars": 5000
+    },
+    "name": "lexapi_read_document",
+    "description": "Read an EU document by its CELEX number: one article (article argument), or its articles in order. Each passage is followed by a Source line with its CELEX citation. Consolidated texts (CELEX starting with 0) have no legal force: cite the act as published in the Official Journal. The output is limited by a character budget of 5000 characters of text; the articles not shown are listed by reference.",
+    "response_format": "content_and_artifact",
+    "openai": {
+      "type": "function",
+      "function": {
+        "name": "lexapi_read_document",
+        "description": "Read an EU document by its CELEX number: one article (article argument), or its articles in order. Each passage is followed by a Source line with its CELEX citation. Consolidated texts (CELEX starting with 0) have no legal force: cite the act as published in the Official Journal. The output is limited by a character budget of 5000 characters of text; the articles not shown are listed by reference.",
+        "parameters": {
+          "properties": {
+            "celex": {
+              "description": "CELEX number of the document, for example 32016R0679.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "article": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional article to read: art_17, 17 or 'Article 17'. Leave it out to read the document's articles from the start."
+            },
+            "language": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z]{2}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional language of the text (ISO 639-1, for example en)."
+            }
+          },
+          "required": [
+            "celex"
+          ],
+          "type": "object"
+        }
+      }
+    }
+  },
+  {
+    "config": {
+      "class": "LexAPIReadDocumentTool",
+      "max_chars": null
+    },
+    "name": "lexapi_read_document",
+    "description": "Read an EU document by its CELEX number: one article (article argument), or its articles in order. Each passage is followed by a Source line with its CELEX citation. Consolidated texts (CELEX starting with 0) have no legal force: cite the act as published in the Official Journal.",
+    "response_format": "content_and_artifact",
+    "openai": {
+      "type": "function",
+      "function": {
+        "name": "lexapi_read_document",
+        "description": "Read an EU document by its CELEX number: one article (article argument), or its articles in order. Each passage is followed by a Source line with its CELEX citation. Consolidated texts (CELEX starting with 0) have no legal force: cite the act as published in the Official Journal.",
         "parameters": {
           "properties": {
             "celex": {

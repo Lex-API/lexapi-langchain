@@ -162,8 +162,8 @@ def test_cut_property_separators_only_in_the_second_half() -> None:
         assert note.startswith(f"{len(kept)} of {len(text)} characters shown.")
         expected = None
         for separator in ("\n\n", "\n", " "):
-            at = body.rfind(separator, 0, limit + 1)
-            if at > 0 and at >= limit // 2:
+            at = body.rfind(separator, 0, limit + len(separator))
+            if at > 0 and limit // 2 <= at <= limit:
                 expected = body[:at].rstrip()
                 break
         assert kept == (expected if expected is not None else body[:limit].rstrip())
