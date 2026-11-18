@@ -163,8 +163,66 @@ def test_the_retriever_still_raises_the_sdk_error() -> None:
     client, _ = offline_clients(Stub(routes={"/legislation/semantic": cut_off}))
     with pytest.raises(InvalidResponseError) as info:
         LexAPILegislationRetriever(client=client).invoke("q")
-    # The SDK at the pinned commit quotes the body: what the tools must not pass on.
-    assert SECRET in str(info.value)
+    assert SECRET not in str(info.value)
+    assert SECRET not in everything_raised(info.value)
+
+
+def wrong_shape(kind: str) -> Any:
+    def reply(request: httpx.Request) -> httpx.Response:
+        if kind == "empty":
+            return httpx.Response(200, content=b"", headers={"content-type": "application/json"})
+        if kind == "results-not-a-list":
+            return httpx.Response(200, json={"success": True, "results": SECRET})
+        if kind == "success-false":
+            return httpx.Response(200, json={"success": False})
+        body = {"success": False, "error": {"code": "UPSTREAM_ERROR", "message": SECRET}}
+        return httpx.Response(200, json=body)
+
+    return reply
+
+
+SEARCH_SHAPES = ["empty", "results-not-a-list", "success-false", "success-false-envelope"]
+ALL_SHAPES = ["empty", "success-false", "success-false-envelope"]
+PATHS = ("/legislation/semantic", "/search/semantic", "/documentContent", "/legislation/as-of")
+
+
+def shape_clients(kind: str) -> tuple[Any, Any]:
+    return offline_clients(Stub(routes={p: wrong_shape(kind) for p in PATHS}))
+
+
+@pytest.mark.parametrize("kind", SEARCH_SHAPES)
+@pytest.mark.parametrize("cls", [LexAPILegislationRetriever, LexAPICaseLawRetriever])
+async def test_retrievers_raise_on_a_wrong_shape_200(cls: type[Any], kind: str) -> None:
+    client, async_client = shape_clients(kind)
+    expected = LexAPIError if kind == "success-false-envelope" else InvalidResponseError
+    with pytest.raises(expected) as info:
+        cls(client=client).invoke("q")
+    assert info.value.status == 200
+    with pytest.raises(expected):
+        await cls(async_client=async_client).ainvoke("q")
+
+
+@pytest.mark.parametrize(
+    ("cls", "args", "kind"),
+    [(c, a, k) for c, a in CUT_OFF_CASES for k in ALL_SHAPES]
+    + [(LexAPISearchLegislationTool, {"query": "q"}, "results-not-a-list")],
+)
+async def test_tools_give_the_fixed_text_on_a_wrong_shape_200(
+    cls: type[Any], args: dict[str, Any], kind: str
+) -> None:
+    client, async_client = shape_clients(kind)
+    tool = cls(client=client, async_client=async_client)
+    for run in ("sync", "async"):
+        with pytest.raises(ToolException) as info:
+            if run == "sync":
+                tool.invoke(args)
+            else:
+                await tool.ainvoke(args)
+        assert str(info.value) == UNREADABLE
+        assert SECRET not in everything_raised(info.value)
+    handled = cls(client=client, handle_tool_error=True)
+    message = handled.invoke({"type": "tool_call", "id": "c", "name": handled.name, "args": args})
+    assert message.content == UNREADABLE
 
 
 def test_any_error_on_a_2xx_status_gets_the_fixed_text() -> None:

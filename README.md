@@ -159,7 +159,8 @@ stored on the retriever, so concurrent calls do not mix.
 
 ## Errors
 
-An error is never turned into an empty list. A result can still be empty without an error: no hit
+An error is never turned into an empty list. An answer LexAPI's client cannot read raises an error;
+it is never read as an empty result. A result can still be empty without an error: no hit
 above the relevance floor, a `celex` restriction that matched nothing, hits left out by
 `unresolved="drop"` or `emit_withheld=False`, or hits without a CELEX number.
 
