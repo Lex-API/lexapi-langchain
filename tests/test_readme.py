@@ -8,6 +8,7 @@ import pathlib
 import re
 from typing import Any
 
+import lexapi
 import pytest
 
 import langchain_lexapi._clients as clients_module
@@ -51,12 +52,15 @@ def stub(monkeypatch: pytest.MonkeyPatch) -> Stub:
     return stub
 
 
-def test_readme_has_three_examples() -> None:
-    assert len(BLOCKS) == 3
+def test_readme_has_four_examples() -> None:
+    assert len(BLOCKS) == 4
 
 
-@pytest.mark.parametrize("index", range(3))
-def test_readme_example_runs(stub: Stub, index: int) -> None:
+@pytest.mark.parametrize("index", range(4))
+def test_readme_example_runs(stub: Stub, index: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    if index == 3:  # tool_error in a tool of your own: a client built by the example, failing
+        stub.routes["/documentContent"] = (402, load("error-402"))
+        monkeypatch.setattr(lexapi, "LexAPI", lambda *args, **kwargs: offline_clients(stub)[0])
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         exec(compile(BLOCKS[index], f"README example {index + 1}", "exec"), {})
@@ -65,3 +69,8 @@ def test_readme_example_runs(stub: Stub, index: int) -> None:
     assert "MUST-NOT-LEAK" not in out.getvalue()
     if index == 0:
         assert out.getvalue().splitlines()[2].startswith("None ")  # no cite_celex
+    if index == 3:
+        assert out.getvalue() == (
+            "LexAPI error CREDITS_EXHAUSTED (HTTP 402): Credit pool exhausted. "
+            "Credits reset at 2099-07-01T00:00:00.000Z.\n"
+        )

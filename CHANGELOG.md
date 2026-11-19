@@ -6,11 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `tool_error` is exported: it turns a `lexapi.LexAPIError` into the `ToolException` this
+  package's tools raise, with the same text, for tools of your own. `langchain_lexapi.tools.tool_error`
+  still works.
+
 ### Changed
 
-- `lexapi-client` pinned to `19da4dd`, which checks document and as-of answers against their
-  documented shape and reads answers as strict JSON (`NaN`/`Infinity` are refused); for these,
-  retrievers raise `lexapi.InvalidResponseError` and tools give the unreadable-answer text,
+- Tool error text: a failed payment (`PAYMENT_PAST_DUE`) and an exhausted quota
+  (`QUOTA_EXHAUSTED`) never suggest a wait, even on a 429 with `Retry-After`. A failed payment adds
+  `Access ended at <time>.` when the API sends it, before the billing link; an exhausted quota adds
+  `Quota resets at <time>.` when the API sends it.
+- `lexapi-client` pinned to `e48dfda`. It makes `PaymentPastDueError` a subclass of
+  `TierForbiddenError` that is never retried and adds `RateLimitedError.quota_exhausted`. It checks
+  document and as-of answers against their documented shape, reads answers as strict JSON
+  (`NaN`/`Infinity` and JSON nested deeper than 512 levels are refused) and raises
+  `InvalidResponseError` from iterators whose server stops advancing; for these, retrievers raise
+  `lexapi.InvalidResponseError` and tools give the unreadable-answer text,
   `LexAPI error INVALID_RESPONSE (HTTP 200): The answer could not be read.` The text without the
   status remains for this package's additional checks.
 

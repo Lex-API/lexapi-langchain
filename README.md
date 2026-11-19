@@ -184,8 +184,14 @@ left out by `unresolved="drop"` or `emit_withheld=False`, or hits without a CELE
   shares those clients and never closes them.
 - Retrievers raise the SDK's exceptions unchanged, with the API's own message (nothing is masked
   or reworded): `lexapi.CreditsExhaustedError` (402),
-  `lexapi.PaymentPastDueError` (403), `lexapi.RateLimitedError` (429, after the SDK's own
-  retries), `lexapi.AuthenticationError` (401), and the rest of `lexapi.LexAPIError`.
+  `lexapi.PaymentPastDueError` (403, a subclass of `lexapi.TierForbiddenError`),
+  `lexapi.RateLimitedError` (429, after the SDK's own retries), `lexapi.AuthenticationError` (401),
+  and the rest of `lexapi.LexAPIError`.
+- A tool's error text suggests a wait (`Retry after 7 s.`) only for an error the SDK would retry.
+  A failed payment (`PAYMENT_PAST_DUE`) never gets one: after the API's message come
+  `Access ended at <time>.` and `Billing: <link>` when the API sends them. Nor does an exhausted
+  quota (`QUOTA_EXHAUSTED`, `RateLimitedError.quota_exhausted`): it ends with
+  `Quota resets at <time>.` when the API sends the time.
 - Tools raise `langchain_core.tools.ToolException` with the API's error code and message, for
   example `LexAPI error RATE_LIMITED (HTTP 429): Rate limit exceeded. Retry after 7 s.`, with
   anything shaped like an API key masked. An answer that could not be read gives `LexAPI error
@@ -202,6 +208,22 @@ left out by `unresolved="drop"` or `emit_withheld=False`, or hits without a CELE
   closed; create a new one.` A configuration error (such as a tool given only an `async_client` and
   called synchronously) is raised as itself. Set `handle_tool_error=True` on a tool to hand that
   message to the model instead of raising.
+
+### The same error text in your own tools
+
+`tool_error(error)` turns a `lexapi.LexAPIError` into the `ToolException` these tools raise, with
+the same text and the same masking. Use it in a tool of your own that calls the SDK:
+
+```python
+from lexapi import LexAPI, LexAPIError
+
+from langchain_lexapi import tool_error
+
+try:
+    LexAPI().get_document("32016R0679")
+except LexAPIError as error:
+    print(tool_error(error))  # in a tool: raise tool_error(error) from error
+```
 
 The API key is never logged, never in `repr()` and never serialised.
 

@@ -30,6 +30,7 @@ from lexapi import (
     InvalidResponseError,
     LexAPIError,
     PaymentPastDueError,
+    RateLimitedError,
 )
 from lexapi import passages as lexapi_passages
 from lexapi.models import DocumentResponse, LegislationAsOfResponse
@@ -48,6 +49,7 @@ __all__ = [
     "LexAPILegislationAsOfTool",
     "LexAPIReadDocumentTool",
     "LexAPISearchLegislationTool",
+    "tool_error",
 ]
 
 _DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
@@ -63,12 +65,18 @@ def _unreadable(error: LexAPIError) -> bool:
 
 
 def tool_error(error: LexAPIError) -> ToolException:
-    """A ``ToolException`` naming the API's error code and message. Anything
-    shaped like an API key is masked.
+    """A ``ToolException`` naming the API's error code and message: the text
+    this package's tools raise for an SDK error. Anything shaped like an API
+    key is masked.
 
     An answer that could not be read (``InvalidResponseError``, or any error
     on a 2xx status) gets a fixed message, so what the model reads does not
-    depend on the SDK's message for it."""
+    depend on the SDK's message for it.
+
+    A wait is suggested only for an error the SDK treats as retryable: never
+    for a failed payment (``PaymentPastDueError``) or an exhausted quota
+    (``RateLimitedError.quota_exhausted``), which say when access ended or
+    when the quota resets, as far as the error says."""
     status = error.status
     if _unreadable(error):
         where = f" (HTTP {status})" if status is not None else ""
@@ -82,9 +90,18 @@ def tool_error(error: LexAPIError) -> ToolException:
     parts.append(f": {message}")
     if isinstance(error, CreditsExhaustedError) and error.resets_at:
         parts.append(f" Credits reset at {error.resets_at}.")
-    if isinstance(error, PaymentPastDueError) and error.billing_url:
-        parts.append(f" Billing: {error.billing_url}")
-    if error.retry_after is not None:
+    retryable = True
+    if isinstance(error, PaymentPastDueError):
+        retryable = False
+        if error.access_ended_at:
+            parts.append(f" Access ended at {error.access_ended_at}.")
+        if error.billing_url:
+            parts.append(f" Billing: {error.billing_url}")
+    if isinstance(error, RateLimitedError) and error.quota_exhausted:
+        retryable = False
+        if error.resets_at:
+            parts.append(f" Quota resets at {error.resets_at}.")
+    if retryable and error.retry_after is not None:
         parts.append(f" Retry after {error.retry_after:g} s.")
     return ToolException(_KEY_PATTERN.sub("lex_***", "".join(parts)))
 
