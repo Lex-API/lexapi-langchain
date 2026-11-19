@@ -270,7 +270,8 @@ def test_drop_note_without_a_known_date() -> None:
     )
 
 
-def test_retry_after_on_any_error() -> None:
+def test_no_wait_for_an_error_the_sdk_does_not_retry() -> None:
+    # A 503 on a tool's POST is not retried by LexAPI's client (default settings).
     def unavailable(request: httpx.Request) -> httpx.Response:
         body = {"success": False, "error": {"code": "SERVICE_UNAVAILABLE", "message": "Busy"}}
         return httpx.Response(503, json=body, headers={"Retry-After": "12"})
@@ -278,9 +279,7 @@ def test_retry_after_on_any_error() -> None:
     client, _ = offline_clients(Stub(routes={"/legislation/semantic": unavailable}))
     with pytest.raises(ToolException) as info:
         LexAPISearchLegislationTool(client=client).invoke({"query": "q"})
-    assert str(info.value) == (
-        "LexAPI error SERVICE_UNAVAILABLE (HTTP 503): Busy. Retry after 12 s."
-    )
+    assert str(info.value) == ("LexAPI error SERVICE_UNAVAILABLE (HTTP 503): Busy.")
 
 
 # ── construction ────────────────────────────────────────────────────────

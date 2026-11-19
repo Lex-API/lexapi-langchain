@@ -146,6 +146,7 @@ def test_handle_tool_error_turns_it_into_a_message_when_asked() -> None:
             403,
             "LexAPI error PAYMENT_PAST_DUE (HTTP 403): Payment past due: Your subscription "
             "payment failed, so API requests are refused. "
+            "Access ended at 2099-06-25T09:14:03.000Z. "
             "Billing: https://lex-api.com/dashboard#billing",
         ),
         ("error-401", 401, "LexAPI error UNAUTHORIZED (HTTP 401): Invalid API key."),

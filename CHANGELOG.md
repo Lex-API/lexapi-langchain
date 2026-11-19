@@ -6,13 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `tool_error` is exported: it turns a `lexapi.LexAPIError` into the `ToolException` this
+  package's tools raise, with the same text, for tools of your own. Anything else raises
+  `TypeError`. `langchain_lexapi.tools.tool_error` still works.
+
 ### Changed
 
-- `lexapi-client` pinned to `19da4dd`, which checks document and as-of answers against their
-  documented shape and reads answers as strict JSON (`NaN`/`Infinity` are refused); for these,
-  retrievers raise `lexapi.InvalidResponseError` and tools give the unreadable-answer text,
-  `LexAPI error INVALID_RESPONSE (HTTP 200): The answer could not be read.` The text without the
-  status remains for this package's additional checks.
+- Tool error text has a fixed form: `LexAPI error CODE (HTTP n): <message>.`, then, each only when
+  it applies and in this order, `Credits reset at <t>.`, `This is an exhausted quota, not a rate
+  limit.`, `Quota resets at <t>.`, `Access ended at <t>.`, `Billing: <url>` (not when the message
+  already holds the link) and `Retry after <n> s.`.
+- `Retry after <n> s.` is given only for an error LexAPI's client retries (a 429 rate limit, or a
+  521/522/523), as a plain decimal above 0; no longer for a failed payment, an exhausted quota, a
+  402, another 4xx or a 5xx.
+- The server's strings in the text are put on one line and capped (the message at 1,000
+  characters, a time or link at 200); a blank one is left out, and a message ending in `:` ends in
+  `.`.
+- `lexapi-client` pinned to `e48dfda`. A failed payment (`PaymentPastDueError`, now a subclass of
+  `TierForbiddenError`) and an exhausted quota are never retried. It checks document and as-of
+  answers against their documented shape, reads answers as strict JSON (`NaN`/`Infinity` and JSON
+  nested deeper than 512 levels are refused) and raises `InvalidResponseError` from iterators whose
+  server stops advancing; for these, retrievers raise `lexapi.InvalidResponseError` and tools give
+  the unreadable-answer text, `LexAPI error INVALID_RESPONSE (HTTP 200): The answer could not be
+  read.` The text without the status remains for this package's additional checks.
 
 ### Fixed
 

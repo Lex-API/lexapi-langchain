@@ -19,6 +19,7 @@ from langchain_lexapi.tools import (
     LexAPILegislationAsOfTool,
     LexAPIReadDocumentTool,
     LexAPISearchLegislationTool,
+    tool_error,
 )
 
 __all__ = [
@@ -33,4 +34,5 @@ __all__ = [
     "LexAPISearchLegislationTool",
     "RetrievalReport",
     "__version__",
+    "tool_error",
 ]

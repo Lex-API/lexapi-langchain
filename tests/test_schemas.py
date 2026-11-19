@@ -87,6 +87,7 @@ def test_public_api() -> None:
         "REPORT_EVENT",
         "RetrievalReport",
         "__version__",
+        "tool_error",
     ]
     assert langchain_lexapi.__version__ == "0.1.0"
 
