@@ -73,10 +73,10 @@ def tool_error(error: LexAPIError) -> ToolException:
     on a 2xx status) gets a fixed message, so what the model reads does not
     depend on the SDK's message for it.
 
-    A wait is suggested only for an error the SDK treats as retryable: never
-    for a failed payment (``PaymentPastDueError``) or an exhausted quota
-    (``RateLimitedError.quota_exhausted``), which say when access ended or
-    when the quota resets, as far as the error says."""
+    The server's wait (``retry_after``) is given, except for a failed payment
+    (``PaymentPastDueError``) and an exhausted quota
+    (``RateLimitedError.quota_exhausted``), which the SDK never retries; they
+    say when access ended or when the quota resets, when the error says."""
     status = error.status
     if _unreadable(error):
         where = f" (HTTP {status})" if status is not None else ""

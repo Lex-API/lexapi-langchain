@@ -187,11 +187,11 @@ left out by `unresolved="drop"` or `emit_withheld=False`, or hits without a CELE
   `lexapi.PaymentPastDueError` (403, a subclass of `lexapi.TierForbiddenError`),
   `lexapi.RateLimitedError` (429, after the SDK's own retries), `lexapi.AuthenticationError` (401),
   and the rest of `lexapi.LexAPIError`.
-- A tool's error text suggests a wait (`Retry after 7 s.`) only for an error the SDK would retry.
-  A failed payment (`PAYMENT_PAST_DUE`) never gets one: after the API's message come
-  `Access ended at <time>.` and `Billing: <link>` when the API sends them. Nor does an exhausted
-  quota (`QUOTA_EXHAUSTED`, `RateLimitedError.quota_exhausted`): it ends with
-  `Quota resets at <time>.` when the API sends the time.
+- A tool's error text gives the server's wait (`Retry after 7 s.`) when there is one, except for
+  a failed payment (`PAYMENT_PAST_DUE`) and an exhausted quota (`QUOTA_EXHAUSTED`,
+  `RateLimitedError.quota_exhausted`), which the SDK never retries. After the API's message, a
+  failed payment adds `Access ended at <time>.` and `Billing: <link>`, and an exhausted quota
+  `Quota resets at <time>.`, each only when the API sends it.
 - Tools raise `langchain_core.tools.ToolException` with the API's error code and message, for
   example `LexAPI error RATE_LIMITED (HTTP 429): Rate limit exceeded. Retry after 7 s.`, with
   anything shaped like an API key masked. An answer that could not be read gives `LexAPI error
