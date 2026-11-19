@@ -13,7 +13,9 @@ message.
 from __future__ import annotations
 
 import dataclasses
+import math
 import re
+import unicodedata
 from collections.abc import Mapping
 from typing import Any, Literal, NoReturn, Self
 
@@ -29,6 +31,7 @@ from lexapi import (
     CreditsExhaustedError,
     InvalidResponseError,
     LexAPIError,
+    NationalAllowanceExhaustedError,
     PaymentPastDueError,
     RateLimitedError,
 )
@@ -64,46 +67,132 @@ def _unreadable(error: LexAPIError) -> bool:
     return isinstance(error, InvalidResponseError) or (status is not None and 200 <= status < 300)
 
 
+#: Caps on the server strings an error text relays, in characters.
+_MESSAGE_CAP = 1000
+_VALUE_CAP = 200
+_SPACE_RUN = re.compile(r"\s+")
+
+
+def _clean(value: object, cap: int) -> str | None:
+    """A server string fit for one line of text: control and line-break
+    characters become spaces, runs of whitespace collapse to one space, and
+    the result is cut at ``cap`` characters (``…`` marks the cut). ``None``
+    for anything that is not a string or is blank once cleaned."""
+    if not isinstance(value, str):
+        return None
+    text = "".join(
+        " " if unicodedata.category(char) in ("Cc", "Zl", "Zp") else char for char in value
+    )
+    text = _SPACE_RUN.sub(" ", text).strip()
+    if not text:
+        return None
+    if len(text) > cap:
+        text = text[:cap].rstrip() + "…"
+    return text
+
+
+def _sentence(message: str) -> str:
+    """The API's message as a sentence: ``.`` added unless it already ends in
+    ``.``, ``!`` or ``?``; a trailing ``:`` becomes the ``.``. Empty for a
+    message that is only colons."""
+    message = message.rstrip(": ")
+    if not message or message[-1] in ".!?":
+        return message
+    return message + "."
+
+
+def _wait_text(seconds: object) -> str | None:
+    """``seconds`` as a plain decimal (``7``, ``2.5``), or ``None`` for a
+    value that is not a finite number above 0."""
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        return None
+    try:
+        value = float(seconds)
+    except OverflowError:
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    if value.is_integer():
+        return str(int(value))
+    text = f"{value:.6f}".rstrip("0").rstrip(".")
+    return text if text != "0" else None
+
+
+#: Cloudflare could not reach LexAPI: the request never arrived, so LexAPI's
+#: client retries it whatever the call.
+_NOT_REACHED = frozenset({521, 522, 523})
+
+
+def _sdk_retries(error: LexAPIError) -> bool:
+    """Whether LexAPI's client retries an error of this kind, judged from
+    what the error carries: a 429, or a 521/522/523 (the request never
+    reached LexAPI); never a failed payment, an exhausted quota, or a
+    credit or allowance error. No other status: 402 and other 4xx are not
+    retried, and neither are the other 5xx this package's tools can meet
+    (read-only POSTs with the default retry settings)."""
+    if error.status not in (429, *_NOT_REACHED):
+        return False
+    if error.code in ("PAYMENT_PAST_DUE", "QUOTA_EXHAUSTED"):
+        return False
+    if isinstance(error, RateLimitedError) and error.quota_exhausted:
+        return False
+    return not isinstance(
+        error, (PaymentPastDueError, CreditsExhaustedError, NationalAllowanceExhaustedError)
+    )
+
+
 def tool_error(error: LexAPIError) -> ToolException:
-    """A ``ToolException`` naming the API's error code and message: the text
-    this package's tools raise for an SDK error. Anything shaped like an API
-    key is masked.
+    """A ``ToolException`` with the text this package's tools raise for a
+    LexAPI error. Anything shaped like an API key is masked.
+
+    The text is ``LexAPI error CODE (HTTP n): message.`` (no ``(HTTP n)``
+    without a status), followed, each only when it applies and in this
+    order, by ``Credits reset at <t>.``, ``This is an exhausted quota, not a
+    rate limit.`` and ``Quota resets at <t>.``, ``Access ended at <t>.``,
+    ``Billing: <url>`` (not when the message already holds the link) and
+    ``Retry after <n> s.`` (only for an error LexAPI's client would retry: a
+    429 rate limit, or a 521/522/523). Server strings are put on one line
+    and capped: the message at 1,000 characters, the others at 200.
 
     An answer that could not be read (``InvalidResponseError``, or any error
     on a 2xx status) gets a fixed message, so what the model reads does not
     depend on the SDK's message for it.
 
-    The server's wait (``retry_after``) is given, except for a failed payment
-    (``PaymentPastDueError``) and an exhausted quota
-    (``RateLimitedError.quota_exhausted``), which the SDK never retries; they
-    say when access ended or when the quota resets, when the error says."""
+    Raises ``TypeError`` for anything that is not a ``lexapi.LexAPIError``."""
+    if not isinstance(error, LexAPIError):
+        raise TypeError(f"tool_error expects a lexapi.LexAPIError, got {type(error).__name__}")
     status = error.status
     if _unreadable(error):
         where = f" (HTTP {status})" if status is not None else ""
         return ToolException(f"LexAPI error INVALID_RESPONSE{where}: The answer could not be read.")
-    parts = [f"LexAPI error {error.code}"]
+    head = f"LexAPI error {_clean(error.code, _VALUE_CAP) or 'UNKNOWN'}"
     if status is not None:
-        parts[0] += f" (HTTP {status})"
-    message = error.message.strip()
-    if message and message[-1] not in ".!?":
-        message += "."
-    parts.append(f": {message}")
-    if isinstance(error, CreditsExhaustedError) and error.resets_at:
-        parts.append(f" Credits reset at {error.resets_at}.")
-    retryable = True
-    if isinstance(error, PaymentPastDueError):
-        retryable = False
-        if error.access_ended_at:
-            parts.append(f" Access ended at {error.access_ended_at}.")
-        if error.billing_url:
-            parts.append(f" Billing: {error.billing_url}")
+        head += f" (HTTP {status})"
+    message = _clean(error.message, _MESSAGE_CAP)
+    sentence = _sentence(message) if message else None
+    parts = [f"{head}: {sentence}" if sentence else f"{head}."]
+    if isinstance(error, CreditsExhaustedError):
+        resets_at = _clean(error.resets_at, _VALUE_CAP)
+        if resets_at:
+            parts.append(f"Credits reset at {resets_at}.")
     if isinstance(error, RateLimitedError) and error.quota_exhausted:
-        retryable = False
-        if error.resets_at:
-            parts.append(f" Quota resets at {error.resets_at}.")
-    if retryable and error.retry_after is not None:
-        parts.append(f" Retry after {error.retry_after:g} s.")
-    return ToolException(_KEY_PATTERN.sub("lex_***", "".join(parts)))
+        parts.append("This is an exhausted quota, not a rate limit.")
+        resets_at = _clean(error.resets_at, _VALUE_CAP)
+        if resets_at:
+            parts.append(f"Quota resets at {resets_at}.")
+    if isinstance(error, PaymentPastDueError):
+        ended = _clean(error.access_ended_at, _VALUE_CAP)
+        if ended:
+            parts.append(f"Access ended at {ended}.")
+        full_url = _clean(error.billing_url, len(error.billing_url or ""))
+        full_message = _clean(error.message, len(error.message or ""))
+        if full_url and not (full_message and full_url in full_message):
+            parts.append(f"Billing: {_clean(full_url, _VALUE_CAP)}")
+    if _sdk_retries(error):
+        wait = _wait_text(error.retry_after)
+        if wait:
+            parts.append(f"Retry after {wait} s.")
+    return ToolException(_KEY_PATTERN.sub("lex_***", " ".join(parts)))
 
 
 def _check_celex(celex: str) -> None:

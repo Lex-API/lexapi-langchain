@@ -10,6 +10,7 @@ from typing import Any
 
 import lexapi
 import pytest
+from langchain_core.tools import ToolException
 
 import langchain_lexapi._clients as clients_module
 from conftest import Stub, load, offline_clients
@@ -56,11 +57,8 @@ def test_readme_has_four_examples() -> None:
     assert len(BLOCKS) == 4
 
 
-@pytest.mark.parametrize("index", range(4))
-def test_readme_example_runs(stub: Stub, index: int, monkeypatch: pytest.MonkeyPatch) -> None:
-    if index == 3:  # tool_error in a tool of your own: a client built by the example, failing
-        stub.routes["/documentContent"] = (402, load("error-402"))
-        monkeypatch.setattr(lexapi, "LexAPI", lambda *args, **kwargs: offline_clients(stub)[0])
+@pytest.mark.parametrize("index", range(3))
+def test_readme_example_runs(stub: Stub, index: int) -> None:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         exec(compile(BLOCKS[index], f"README example {index + 1}", "exec"), {})
@@ -69,8 +67,32 @@ def test_readme_example_runs(stub: Stub, index: int, monkeypatch: pytest.MonkeyP
     assert "MUST-NOT-LEAK" not in out.getvalue()
     if index == 0:
         assert out.getvalue().splitlines()[2].startswith("None ")  # no cite_celex
-    if index == 3:
-        assert out.getvalue() == (
-            "LexAPI error CREDITS_EXHAUSTED (HTTP 402): Credit pool exhausted. "
-            "Credits reset at 2099-07-01T00:00:00.000Z.\n"
-        )
+
+
+CITED_BY = "/citations/cited-by/32099R0001"
+
+
+def test_readme_tool_error_example(stub: Stub, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ``@tool`` example: a client the example builds, answering from the stub."""
+    monkeypatch.setattr(lexapi, "LexAPI", lambda *args, **kwargs: offline_clients(stub)[0])
+    namespace: dict[str, Any] = {}
+    exec(compile(BLOCKS[3], "README example 4", "exec"), namespace)
+    cited_by = namespace["lexapi_cited_by"]
+
+    page = {
+        "success": True,
+        "targetDocument": "32099R0001",
+        "citedBy": [{"id": "32099R0002", "citations": []}, {"id": "32099R0003", "citations": []}],
+    }
+    stub.routes[CITED_BY] = (200, page)
+    assert cited_by.invoke({"celex": "32099R0001"}) == "32099R0002\n32099R0003"
+
+    stub.routes[CITED_BY] = (402, load("error-402"))
+    with pytest.raises(ToolException) as info:
+        cited_by.invoke({"celex": "32099R0001"})
+    assert str(info.value) == (
+        "LexAPI error CREDITS_EXHAUSTED (HTTP 402): Credit pool exhausted. "
+        "Credits reset at 2099-07-01T00:00:00.000Z."
+    )
+    assert isinstance(info.value.__cause__, lexapi.CreditsExhaustedError)
+    assert [r.url.path for r in stub.requests] == ["/api/v1" + CITED_BY] * 2

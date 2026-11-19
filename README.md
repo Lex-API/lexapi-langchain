@@ -183,49 +183,77 @@ left out by `unresolved="drop"` or `emit_withheld=False`, or hits without a CELE
   does a `model_copy` once the object it was copied from has closed the clients it built: a copy
   shares those clients and never closes them.
 - Retrievers raise the SDK's exceptions unchanged, with the API's own message (nothing is masked
-  or reworded): `lexapi.CreditsExhaustedError` (402),
-  `lexapi.PaymentPastDueError` (403, a subclass of `lexapi.TierForbiddenError`),
-  `lexapi.RateLimitedError` (429, after the SDK's own retries), `lexapi.AuthenticationError` (401),
-  and the rest of `lexapi.LexAPIError`.
-- A tool's error text gives the server's wait (`Retry after 7 s.`) when there is one, except for
-  a failed payment (`PAYMENT_PAST_DUE`) and an exhausted quota (`QUOTA_EXHAUSTED`,
-  `RateLimitedError.quota_exhausted`), which the SDK never retries. After the API's message, a
-  failed payment adds `Access ended at <time>.` and `Billing: <link>`, and an exhausted quota
-  `Quota resets at <time>.`, each only when the API sends it.
-- Tools raise `langchain_core.tools.ToolException` with the API's error code and message, for
-  example `LexAPI error RATE_LIMITED (HTTP 429): Rate limit exceeded. Retry after 7 s.`, with
-  anything shaped like an API key masked. An answer that could not be read gives `LexAPI error
-  INVALID_RESPONSE (HTTP 200): The answer could not be read.` and quotes nothing from it; an answer
-  without its documented fields (no `document`, say) is rejected by LexAPI's client and gives that
-  same text. A few further checks are this package's own: a document without a `celex`, a `fullText`
-  that is not a string, or a blank as-of `document` gives the text without the status, `LexAPI error
-  INVALID_RESPONSE: The answer could not be read.`. Neither is ever a "no text" answer. An argument
-  that matches the tool's schema but is an impossible date (`2099-02-30`), or a `query` or `celex`
-  that is only whitespace, gives `Invalid argument: ...` (for example `Invalid argument: query must
-  not be empty`) before any request; retrievers raise `InvalidArgumentError` with the same text
-  without the prefix; an argument that does not match the tool's schema (`as_of="1 June 2099"`)
-  raises the framework's validation error. Use after `close()` / `aclose()` gives `<Class> is
-  closed; create a new one.` A configuration error (such as a tool given only an `async_client` and
-  called synchronously) is raised as itself. Set `handle_tool_error=True` on a tool to hand that
-  message to the model instead of raising.
+  or reworded): `lexapi.CreditsExhaustedError` (402), `lexapi.PaymentPastDueError` (403 or 429, a
+  subclass of `lexapi.TierForbiddenError`), `lexapi.RateLimitedError` (429, after the SDK's own
+  retries), `lexapi.AuthenticationError` (401), and the rest of `lexapi.LexAPIError`.
+- Tools raise `langchain_core.tools.ToolException`. For a LexAPI error its text is one line:
+
+  ```text
+  LexAPI error CODE (HTTP n): <the API's message>.
+    then, each only when it applies, in this order:
+    Credits reset at <t>.                            credits exhausted
+    This is an exhausted quota, not a rate limit.    RateLimitedError.quota_exhausted
+    Quota resets at <t>.                             the same, when the time is known
+    Access ended at <t>.                             PaymentPastDueError
+    Billing: <url>                                   the same, unless the message holds the link
+    Retry after <n> s.                               only where LexAPI's client retries
+  LexAPI error CODE: <message>.                      no HTTP status (a connection error)
+  Invalid argument: <what is wrong>                  refused before any request
+  <Class> is closed; create a new one.               use after close()
+  ```
+
+  The server's strings are put on one line (control characters and line breaks become spaces) and
+  capped: the message at 1,000 characters, a time or link at 200 (`…` marks a cut); a blank one is
+  left out. Anything shaped like an API key is masked.
+- A wait (`Retry after 7 s.`) is given only for an error LexAPI's client retries: a 429 rate limit,
+  or a 521/522/523 (the request never reached LexAPI), with a wait from the server above 0. Never
+  for a failed payment, an exhausted quota, credits or another 4xx, nor for another 5xx: the
+  tools' calls are POSTs, which the client does not retry on a 5xx with its default settings.
+- Other details an error carries (an upgrade or accept link, a 404's reason, a national allowance's
+  reset time) are not in the text; read them from the exception.
+- An answer that could not be read gives `LexAPI error INVALID_RESPONSE (HTTP 200): The answer
+  could not be read.` and quotes nothing from it; an answer without its documented fields (no
+  `document`, say) is rejected by LexAPI's client and gives that same text. A few further checks
+  are this package's own: a document without a `celex`, a `fullText` that is not a string, or a
+  blank as-of `document` gives the text without the status, `LexAPI error INVALID_RESPONSE: The
+  answer could not be read.`. Neither is ever a "no text" answer. An argument that matches the
+  tool's schema but is an impossible date (`2099-02-30`), or a `query` or `celex` that is only
+  whitespace, gives `Invalid argument: ...` (for example `Invalid argument: query must not be
+  empty`) before any request; retrievers raise `InvalidArgumentError` with the same text without
+  the prefix; an argument that does not match the tool's schema (`as_of="1 June 2099"`) raises the
+  framework's validation error. A configuration error (such as a tool given only an `async_client`
+  and called synchronously) is raised as itself.
+- Set `handle_tool_error=True` on a tool to hand that text to the model instead of raising. With
+  `handle_tool_error=True` the model reads this text and may repeat it to the person it is talking
+  to, including a failed payment and the billing link; an application that handles billing itself
+  should catch the error instead.
+
+The API key is never logged, never in `repr()` and never serialised.
 
 ### The same error text in your own tools
 
 `tool_error(error)` turns a `lexapi.LexAPIError` into the `ToolException` these tools raise, with
-the same text and the same masking. Use it in a tool of your own that calls the SDK:
+the same text and the same masking; anything else raises `TypeError`. Use it in a tool of your
+own that calls the SDK:
 
 ```python
+from langchain_core.tools import tool
 from lexapi import LexAPI, LexAPIError
 
 from langchain_lexapi import tool_error
 
-try:
-    LexAPI().get_document("32016R0679")
-except LexAPIError as error:
-    print(tool_error(error))  # in a tool: raise tool_error(error) from error
-```
+client = LexAPI()
 
-The API key is never logged, never in `repr()` and never serialised.
+
+@tool
+def lexapi_cited_by(celex: str) -> str:
+    """List the documents that cite an EU act, by its CELEX number."""
+    try:
+        page = client.citations.cited_by(celex)
+    except LexAPIError as error:
+        raise tool_error(error) from error
+    return "\n".join(item["id"] for item in page["citedBy"])
+```
 
 ## What this package does not do
 
