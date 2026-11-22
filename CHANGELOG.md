@@ -41,33 +41,27 @@ All notable changes to this project are documented here. The format follows
   regenerates it.
 - `tool_error` is exported: it turns a `lexapi.LexAPIError` into the `ToolException` this
   package's tools raise, with the same text, for tools of your own. Anything else raises
-  `TypeError`. `langchain_lexapi.tools.tool_error` still works.
-
-### Changed
-
+  `TypeError`. It can also be imported as `langchain_lexapi.tools.tool_error`.
 - Tool error text has a fixed form: `LexAPI error CODE (HTTP n): <message>.`, then, each only when
   it applies and in this order, `Credits reset at <t>.`, `This is an exhausted quota, not a rate
   limit.`, `Quota resets at <t>.`, `Access ended at <t>.`, `Billing: <url>` (not when the message
   already holds the link) and `Retry after <n> s.`.
 - `Retry after <n> s.` is given only for an error LexAPI's client retries (a 429 rate limit, or a
-  521/522/523), as a plain decimal above 0; no longer for a failed payment, an exhausted quota, a
-  402, another 4xx or a 5xx.
+  521/522/523), as a plain decimal above 0; never for a failed payment, an exhausted quota, a 402,
+  another 4xx or a 5xx.
 - The server's strings in the text are put on one line and capped (the message at 1,000
   characters, a time or link at 200); a blank one is left out, and a message ending in `:` ends in
   `.`.
-- With `lexapi-client` 0.5.0, a failed payment (`PaymentPastDueError`, now a subclass of
-  `TierForbiddenError`) and an exhausted quota are never retried. It checks document and as-of
-  answers against their documented shape, reads answers as strict JSON (`NaN`/`Infinity` and JSON
-  nested deeper than 512 levels are refused) and raises `InvalidResponseError` from iterators whose
-  server stops advancing; for these, retrievers raise `lexapi.InvalidResponseError` and tools give
-  the unreadable-answer text, `LexAPI error INVALID_RESPONSE (HTTP 200): The answer could not be
-  read.` The text without the status remains for this package's additional checks.
-
-### Fixed
-
+- Requires `lexapi-client` 0.5.0 or later (below 0.6). A failed payment (`PaymentPastDueError`, a
+  subclass of `TierForbiddenError`) and an exhausted quota are never retried. Answers that cannot
+  be read (wrong shape, non-strict JSON such as `NaN`/`Infinity` or nesting deeper than 512
+  levels, an iterator whose server stops advancing) make retrievers raise
+  `lexapi.InvalidResponseError` and give tools the text `LexAPI error INVALID_RESPONSE (HTTP 200):
+  The answer could not be read.` This package's additional checks give that text without the
+  status.
 - Read tool budget: once the first article alone is over the budget, nothing else is shown, and
   the cut note is not counted; the articles shown are always a prefix of the document's.
 - Empty or whitespace-only `query`/`celex`: tools give `Invalid argument: …`, retrievers raise
   `InvalidArgumentError`. A whitespace-only `article` (read tool) or `provision` (as-of tool) is
-  refused too; an absent one is still "not given". All before any request.
+  refused too; an absent one is "not given". All before any request.
 - The search tool given only an async client and called synchronously names itself in its error.

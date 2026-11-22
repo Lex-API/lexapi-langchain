@@ -178,7 +178,7 @@ left out by `unresolved="drop"` or `emit_withheld=False`, or hits without a CELE
   does a `model_copy` once the object it was copied from has closed the clients it built: a copy
   shares those clients and never closes them.
 - Retrievers raise the SDK's exceptions unchanged, with the API's own message (nothing is masked
-  or reworded): `lexapi.CreditsExhaustedError` (402), `lexapi.PaymentPastDueError` (403 or 429, a
+  or reworded): `lexapi.CreditsExhaustedError` (402), `lexapi.PaymentPastDueError` (403, a
   subclass of `lexapi.TierForbiddenError`), `lexapi.RateLimitedError` (429, after the SDK's own
   retries), `lexapi.AuthenticationError` (401), and the rest of `lexapi.LexAPIError`.
 - Tools raise `langchain_core.tools.ToolException`. For a LexAPI error its text is one line:
@@ -274,4 +274,4 @@ pytest
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/Lex-API/lexapi-langchain/blob/HEAD/LICENSE).
