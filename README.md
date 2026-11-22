@@ -16,14 +16,9 @@ applies the same citation and date rules as the
 
 ## Install
 
-Version 0.1.0 is not on PyPI yet. Install it from this repository:
-
 ```bash
-pip install "langchain-lexapi @ git+https://github.com/Lex-API/lexapi-langchain"
+pip install langchain-lexapi
 ```
-
-Until `lexapi-client` 0.5.0 is on PyPI, the LexAPI Python SDK is installed from a pinned commit of
-its repository, so the install needs git.
 
 It needs Python 3.11 or later, `langchain-core` 1.4 or later and the LexAPI Python SDK. Get an
 API key from the [LexAPI dashboard](https://lex-api.com/dashboard) and set `LEXAPI_API_KEY`, or
