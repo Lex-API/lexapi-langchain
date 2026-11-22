@@ -16,14 +16,9 @@ applies the same citation and date rules as the
 
 ## Install
 
-Version 0.1.0 is not on PyPI yet. Install it from this repository:
-
 ```bash
-pip install "langchain-lexapi @ git+https://github.com/Lex-API/lexapi-langchain"
+pip install langchain-lexapi
 ```
-
-Until `lexapi-client` 0.5.0 is on PyPI, the LexAPI Python SDK is installed from a pinned commit of
-its repository, so the install needs git.
 
 It needs Python 3.11 or later, `langchain-core` 1.4 or later and the LexAPI Python SDK. Get an
 API key from the [LexAPI dashboard](https://lex-api.com/dashboard) and set `LEXAPI_API_KEY`, or
@@ -183,7 +178,7 @@ left out by `unresolved="drop"` or `emit_withheld=False`, or hits without a CELE
   does a `model_copy` once the object it was copied from has closed the clients it built: a copy
   shares those clients and never closes them.
 - Retrievers raise the SDK's exceptions unchanged, with the API's own message (nothing is masked
-  or reworded): `lexapi.CreditsExhaustedError` (402), `lexapi.PaymentPastDueError` (403 or 429, a
+  or reworded): `lexapi.CreditsExhaustedError` (402), `lexapi.PaymentPastDueError` (403, a
   subclass of `lexapi.TierForbiddenError`), `lexapi.RateLimitedError` (429, after the SDK's own
   retries), `lexapi.AuthenticationError` (401), and the rest of `lexapi.LexAPIError`.
 - Tools raise `langchain_core.tools.ToolException`. For a LexAPI error its text is one line:
@@ -279,4 +274,4 @@ pytest
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/Lex-API/lexapi-langchain/blob/HEAD/LICENSE).

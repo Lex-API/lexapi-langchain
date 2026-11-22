@@ -28,9 +28,7 @@ classifiers = [
 dependencies = [
   "langchain-core>=1.4,<2",
   "pydantic>=2.9,<3",
-  # TODO(release): replace with "lexapi-client>=0.5.0,<0.6" once 0.5.0 is on PyPI.
-  # A wheel with a direct-URL dependency cannot be uploaded to PyPI.
-  "lexapi-client @ git+https://github.com/Lex-API/lexapi-python@e48dfdadf8fb4c2a05f4c6ec08f79146177a515e",
+  "lexapi-client>=0.5.0,<0.6",
 ]
 
 [project.optional-dependencies]
@@ -50,14 +48,10 @@ Homepage = "https://lex-api.com"
 Documentation = "https://lex-api.com/docs"
 Repository = "https://github.com/Lex-API/lexapi-langchain"
 Issues = "https://github.com/Lex-API/lexapi-langchain/issues"
-Changelog = "https://github.com/Lex-API/lexapi-langchain/blob/main/CHANGELOG.md"
+Changelog = "https://github.com/Lex-API/lexapi-langchain/blob/HEAD/CHANGELOG.md"
 
 [tool.hatch.version]
 path = "src/langchain_lexapi/_version.py"
-
-[tool.hatch.metadata]
-# Only for the pre-release git pin of lexapi-client (see dependencies).
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/langchain_lexapi"]
